@@ -1,16 +1,26 @@
 """Scrape the BIS central bankers' speeches index (ADR 0010).
 
 The BIS aggregates speeches from every central bank in one place, so a single source covers all
-tracked institutions. This parser targets a documented listing/detail HTML contract (see the
-fixtures in the tests); the live BIS selectors must be verified and adjusted against the real
-site. The fetcher is injected, so this is tested against fixtures with no network. Speeches from
-institutions outside the schema spine are skipped.
+tracked institutions. The contract was verified against the live site (bis.org is a React app):
+
+- The listing comes from the RSS feed (``/doclist/cbspeeches.rss``), an RSS 1.0 / Dublin Core
+  document that is far more stable than the page's HTML. Each item carries the speaker
+  (``dc:creator``), the delivery time (``dc:date``), the title, the speech URL, and a description
+  that names the institution and role.
+- The speech body lives in a ``data-react-props`` JSON blob on the detail page (``document.content``
+  is the speech HTML), not in a server-rendered content div.
+
+The fetcher is injected, so this is tested against committed fixtures with no network. Speeches
+from institutions outside the schema spine are skipped.
 """
 
 from __future__ import annotations
 
+import json
+import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 from selectolax.parser import HTMLParser
 
@@ -20,7 +30,8 @@ from cbt_worker.sources.base import Fetcher, ScrapedSpeech
 _logger = get_logger(__name__)
 
 _BASE_URL = "https://www.bis.org"
-_LISTING_URL = "https://www.bis.org/doclist/cbspeeches.htm"
+_LISTING_URL = "https://www.bis.org/doclist/cbspeeches.rss"
+_RDF_ABOUT = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about"
 
 # Map BIS institution names onto the schema spine. Only tracked banks are kept.
 _INSTITUTION_TO_BANK: tuple[tuple[str, CentralBank], ...] = (
@@ -35,6 +46,12 @@ _INSTITUTION_TO_BANK: tuple[tuple[str, CentralBank], ...] = (
     ("peoples bank of china", CentralBank.PEOPLES_BANK_OF_CHINA),
 )
 
+# BIS descriptions read "<type> by <Title> <Name>, <Role> of (the) <Institution>, at <venue>...".
+# Capture the role between the first comma and " of "/" at ", and the speaker's own institution
+# from the affiliation clause (not from the venue, which could also name a tracked bank).
+_ROLE_RE = re.compile(r",\s*([A-Z][A-Za-z' .-]{1,80}?)\s+(?:of|at)\b")
+_AFFILIATION_RE = re.compile(r",\s*[A-Z][^,]*?\bof\b\s+(?:the\s+)?(.+?)\s*,")
+
 
 def _central_bank_from(text: str) -> CentralBank | None:
     """Map an institution string onto the schema spine, or ``None`` if untracked."""
@@ -45,9 +62,30 @@ def _central_bank_from(text: str) -> CentralBank | None:
     return None
 
 
+def _role_from(description: str) -> str:
+    """Best-effort role extracted from the RSS description, or a generic fallback."""
+    match = _ROLE_RE.search(description)
+    return match.group(1).strip() if match is not None else "Central banker"
+
+
+def _affiliation_from(description: str) -> str:
+    """The speaker's own institution from the affiliation clause, or the full description.
+
+    Reading the affiliation rather than scanning the whole description avoids misattributing a
+    speaker to a tracked bank merely because they spoke at that bank's venue.
+    """
+    match = _AFFILIATION_RE.search(description)
+    return match.group(1).strip() if match is not None else description
+
+
 def _parse_date(text: str) -> datetime:
-    """Parse a BIS listing date such as ``25 Mar 2024`` as a UTC datetime."""
-    return datetime.strptime(text, "%d %b %Y").replace(tzinfo=UTC)
+    """Parse a BIS ISO-8601 ``dc:date`` such as ``2024-03-25T12:40:00Z`` as a tz-aware datetime."""
+    return datetime.fromisoformat(text)
+
+
+def _localname(tag: str) -> str:
+    """Return an XML tag's local name, dropping any ``{namespace}`` prefix."""
+    return tag.rsplit("}", 1)[-1]
 
 
 @dataclass(frozen=True)
@@ -61,7 +99,7 @@ class _ListingEntry:
 
 
 class BisSpeechSource:
-    """Scrapes speeches from the BIS central bankers' speeches index."""
+    """Scrapes speeches from the BIS central bankers' speeches RSS feed."""
 
     name = "bis"
 
@@ -71,9 +109,9 @@ class BisSpeechSource:
         """Build the source.
 
         Args:
-            fetcher: Fetches the HTML of a URL.
+            fetcher: Fetches the text of a URL.
             base_url: The BIS base URL, used to absolutize relative links.
-            listing_url: The speeches listing URL.
+            listing_url: The speeches RSS feed URL.
         """
         self._fetcher = fetcher
         self._base_url = base_url
@@ -114,35 +152,55 @@ class BisSpeechSource:
             )
         return results
 
-    def _parse_listing(self, html: str) -> list[_ListingEntry]:
-        tree = HTMLParser(html)
+    def _parse_listing(self, rss: str) -> list[_ListingEntry]:
+        try:
+            # Trusted BIS feed over HTTPS; ElementTree resolves no external entities by default.
+            root = ET.fromstring(rss)  # noqa: S314
+        except ET.ParseError:
+            _logger.warning("bis_listing_unparseable")
+            return []
         entries: list[_ListingEntry] = []
-        for row in tree.css("tr.speech"):
-            date_node = row.css_first("td.date")
-            speaker_node = row.css_first("td.speaker")
-            institution_node = row.css_first("td.institution")
-            link_node = row.css_first("td.title a")
-            if date_node is None or speaker_node is None or institution_node is None:
+        for item in root.iter():
+            if _localname(item.tag) != "item":
                 continue
-            if link_node is None:
+            fields = {_localname(child.tag): (child.text or "").strip() for child in item}
+            url = fields.get("link") or item.attrib.get(_RDF_ABOUT, "")
+            speaker = fields.get("creator", "")
+            description = fields.get("description", "")
+            date_text = fields.get("date", "")
+            if not (url and speaker and date_text):
                 continue
-            href = link_node.attributes.get("href") or ""
-            role_node = row.css_first("td.role")
+            title = fields.get("title", "")
+            prefix = f"{speaker}:"
+            clean_title = title[len(prefix) :].strip() if title.startswith(prefix) else title
             entries.append(
                 _ListingEntry(
-                    speaker=speaker_node.text(strip=True),
-                    role=role_node.text(strip=True) if role_node is not None else "",
-                    institution=institution_node.text(strip=True),
-                    title=link_node.text(strip=True),
-                    url=self._absolute(href),
-                    delivered_at=_parse_date(date_node.text(strip=True)),
+                    speaker=speaker,
+                    role=_role_from(description),
+                    institution=_affiliation_from(description),
+                    title=clean_title or title,
+                    url=self._absolute(url),
+                    delivered_at=_parse_date(date_text),
                 )
             )
         return entries
 
     def _parse_detail(self, html: str) -> str:
-        body = HTMLParser(html).css_first("div.speech-body")
-        return body.text(separator=" ", strip=True) if body is not None else ""
+        node = HTMLParser(html).css_first("[data-react-props]")
+        if node is None:
+            return ""
+        raw = node.attributes.get("data-react-props")
+        if not raw:
+            return ""
+        try:
+            props = json.loads(raw)
+        except json.JSONDecodeError:
+            return ""
+        document = props.get("document") if isinstance(props, dict) else None
+        content = document.get("content") if isinstance(document, dict) else None
+        if not isinstance(content, str) or not content:
+            return ""
+        return HTMLParser(content).text(separator=" ", strip=True)
 
     def _absolute(self, href: str) -> str:
         if href.startswith("http"):

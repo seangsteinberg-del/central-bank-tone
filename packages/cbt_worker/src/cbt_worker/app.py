@@ -6,6 +6,8 @@ lives in ``runner`` and the sources.
 
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from cbt_core import (
@@ -22,12 +24,28 @@ from cbt_worker.runner import run_ingestion
 from cbt_worker.sources.bis import BisSpeechSource
 
 _USER_AGENT = "cbt-worker/0.1 (central-bank-tone research; contact: ops@example.org)"
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE_SECONDS = 1.0
+_REQUEST_DELAY_SECONDS = 0.5  # polite rate limit between requests to one host
+
+
+def _get(url: str) -> str:  # pragma: no cover - network IO, exercised in production only
+    response = httpx.get(
+        url, timeout=30.0, headers={"User-Agent": _USER_AGENT}, follow_redirects=True
+    )
+    response.raise_for_status()
+    return response.text
 
 
 def _http_fetcher(url: str) -> str:  # pragma: no cover - network IO, exercised in production only
-    response = httpx.get(url, timeout=30.0, headers={"User-Agent": _USER_AGENT})
-    response.raise_for_status()
-    return response.text
+    """Fetch a URL politely: a small inter-request delay and retry-with-backoff on failure."""
+    time.sleep(_REQUEST_DELAY_SECONDS)
+    for attempt in range(_MAX_ATTEMPTS - 1):
+        try:
+            return _get(url)
+        except httpx.HTTPError:
+            time.sleep(_BACKOFF_BASE_SECONDS * (2**attempt))
+    return _get(url)  # the final attempt lets the error propagate
 
 
 def main() -> int:  # pragma: no cover - composition root wiring, exercised in production only
