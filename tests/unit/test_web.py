@@ -12,6 +12,7 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import Engine
 from tests._stubs import StubChunkRetriever
 
@@ -19,6 +20,7 @@ from cbt_core import QaService, Settings, SpeakerService
 from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.exceptions import LlmError
 from cbt_core.services._support import IdFactory
+from cbt_core.settings import Environment
 
 _UNKNOWN = str(UUID(int=999))
 
@@ -237,3 +239,18 @@ def test_core_error_renders_server_error_page(failing_web_client: TestClient) ->
     response = failing_web_client.post("/ui/ask", data={"question": "anything?"})
     assert response.status_code == 500
     assert "Server error" in response.text
+
+
+@pytest.mark.web
+def test_app_boots_without_a_gemini_key() -> None:
+    # The reviewer's "crashes on startup" scenario: build the app with an empty Gemini key.
+    from cbt_web.app import create_app
+
+    settings = Settings(
+        environment=Environment.DEVELOPMENT,
+        database_url="sqlite://",
+        secret_key=SecretStr("dev-secret-for-tests"),
+        gemini_api_key=SecretStr(""),
+    )
+    app = create_app(settings)  # must not raise: the Gemini client is built lazily, on first use
+    assert app.title == "Central Bank Tone"

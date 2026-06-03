@@ -7,7 +7,7 @@ or malformed model response raises :class:`LlmError` rather than fabricating a r
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from google import genai
 from google.genai import types
@@ -15,7 +15,7 @@ from google.genai import types
 from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.exceptions import LlmError
-from cbt_core.llm.client import EMBEDDING_DIM, Embedding
+from cbt_core.llm.client import EMBEDDING_DIM, Embedding, LlmClient
 from cbt_core.logging import get_logger
 from cbt_core.settings import Settings
 
@@ -158,3 +158,53 @@ def build_gemini_client(settings: Settings) -> GeminiClient:
     return GeminiClient(
         client, model=settings.gemini_model, embedding_model=settings.gemini_embedding_model
     )
+
+
+class LazyGeminiClient:
+    """An :class:`~cbt_core.llm.client.LlmClient` that builds the real client on first use.
+
+    This lets the application start without a Gemini API key: browsing speakers and tone history
+    needs no model, so only the operations that actually call Gemini (ingest, index, ask) fail,
+    and only when invoked, with an explicit :class:`LlmError` naming the missing key (CLAUDE.md
+    section 3, no silent fallback). In production the settings validator already requires a real
+    key, so the first use succeeds.
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        builder: Callable[[Settings], LlmClient] = build_gemini_client,
+    ) -> None:
+        """Build the lazy client.
+
+        Args:
+            settings: Application settings holding the Gemini API key and models.
+            builder: Factory for the real client, called once on first use. Injectable for tests.
+        """
+        self._settings = settings
+        self._builder = builder
+        self._delegate: LlmClient | None = None
+
+    def _client(self) -> LlmClient:
+        """Return the underlying client, building it on first use."""
+        if self._delegate is None:
+            try:
+                self._delegate = self._builder(self._settings)
+            except ValueError as exc:
+                raise LlmError(
+                    "Gemini is not configured; set CBT_GEMINI_API_KEY to use model features"
+                ) from exc
+        return self._delegate
+
+    def analyze_tone(self, speech_text: str) -> ToneAnalysis:
+        """Summarize a speech and judge its tone (see :meth:`GeminiClient.analyze_tone`)."""
+        return self._client().analyze_tone(speech_text)
+
+    def embed(self, texts: Sequence[str]) -> list[Embedding]:
+        """Embed texts (see :meth:`GeminiClient.embed`)."""
+        return self._client().embed(texts)
+
+    def answer(self, question: str, chunks: Sequence[RetrievedChunk]) -> str:
+        """Answer a question grounded in chunks (see :meth:`GeminiClient.answer`)."""
+        return self._client().answer(question, chunks)

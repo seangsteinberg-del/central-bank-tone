@@ -47,6 +47,7 @@ class QaService:
         speaker_service: SpeakerService,
         *,
         top_k: int = 5,
+        max_distance: float = 0.6,
     ) -> None:
         """Build the service.
 
@@ -55,11 +56,19 @@ class QaService:
             retriever: Retrieves the relevant chunks.
             speaker_service: Verifies the speaker exists.
             top_k: The maximum number of chunks to retrieve.
+            max_distance: The maximum cosine distance for a chunk to count as relevant. Chunks
+                beyond it are dropped before answering, so an off-topic question abstains rather
+                than grounding in the nearest-but-irrelevant chunks (CLAUDE.md section 3).
         """
         self._llm = llm_client
         self._retriever = retriever
         self._speaker_service = speaker_service
         self._top_k = top_k
+        self._max_distance = max_distance
+
+    def _relevant(self, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        """Drop chunks beyond the relevance threshold so off-topic questions abstain."""
+        return [chunk for chunk in chunks if chunk.distance <= self._max_distance]
 
     def answer(
         self,
@@ -90,7 +99,7 @@ class QaService:
         self._speaker_service.get_speaker(speaker_id, actor=actor, correlation_id=correlation)
 
         query_embedding = self._llm.embed([question])[0]
-        chunks = self._retriever.search(speaker_id, query_embedding, self._top_k)
+        chunks = self._relevant(self._retriever.search(speaker_id, query_embedding, self._top_k))
         if not chunks:
             log.info("qa_abstained")
             return Answer(text=_ABSTENTION, citations=(), abstained=True)
@@ -125,7 +134,7 @@ class QaService:
         log = _logger.bind(correlation_id=str(correlation), actor=actor)
 
         query_embedding = self._llm.embed([question])[0]
-        chunks = self._retriever.search_all(query_embedding, self._top_k)
+        chunks = self._relevant(self._retriever.search_all(query_embedding, self._top_k))
         if not chunks:
             log.info("qa_corpus_abstained")
             return Answer(text=_CORPUS_ABSTENTION, citations=(), abstained=True)

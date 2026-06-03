@@ -78,6 +78,21 @@ def test_answer_abstains_when_no_chunks_are_found(
 
 
 @pytest.mark.unit
+def test_answer_abstains_when_chunks_are_beyond_the_distance_threshold(
+    speaker_service: SpeakerService, stub_llm_client: StubLlmClient
+) -> None:
+    # A retrieved-but-far chunk is not relevant: the service abstains rather than grounding in it.
+    speaker_id = _register(speaker_service)
+    far = RetrievedChunk(
+        speech_id=UUID(int=1), chunk_index=0, text="x", title="t", url="u", distance=1.5
+    )
+    service = QaService(stub_llm_client, _StubRetriever([far]), speaker_service, max_distance=0.6)
+    answer = service.answer(speaker_id=speaker_id, question="anything?")
+    assert answer.abstained is True
+    assert stub_llm_client.answers == 0
+
+
+@pytest.mark.unit
 def test_answer_for_unknown_speaker_raises_not_found(
     speaker_service: SpeakerService, stub_llm_client: StubLlmClient
 ) -> None:

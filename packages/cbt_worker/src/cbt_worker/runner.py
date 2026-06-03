@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from cbt_core import IndexingService, IngestionService, LlmError, SpeakerService, get_logger
+from cbt_core import IndexingService, IngestionService, SpeakerService, get_logger
 from cbt_worker.sources.base import SpeechSource
 
 _logger = get_logger(__name__)
@@ -36,14 +36,19 @@ def run_ingestion(
     """
     ingested = 0
     for source in sources:
-        speeches = source.fetch(limit=limit_per_source)
         log = _logger.bind(source=source.name)
+        try:
+            speeches = source.fetch(limit=limit_per_source)
+        except Exception:
+            # Batch isolation: a broken source is logged and skipped, never aborting the others.
+            log.exception("source_scrape_failed")
+            continue
         log.info("source_scraped", scraped=len(speeches))
         for scraped in speeches:
-            speaker = speaker_service.ensure_speaker(
-                name=scraped.speaker_name, central_bank=scraped.central_bank, role=scraped.role
-            )
             try:
+                speaker = speaker_service.ensure_speaker(
+                    name=scraped.speaker_name, central_bank=scraped.central_bank, role=scraped.role
+                )
                 speech = ingestion_service.ingest_speech(
                     speaker_id=speaker.id,
                     title=scraped.title,
@@ -52,10 +57,11 @@ def run_ingestion(
                     text=scraped.text,
                     language=scraped.language,
                 )
-            except LlmError:
+                indexing_service.index_speech(speech.id)
+            except Exception:
+                # Batch isolation: log every per-speech failure and continue, never abort the run.
                 log.exception("speech_ingest_failed", url=scraped.url)
                 continue
-            indexing_service.index_speech(speech.id)
             ingested += 1
         log.info("source_ingested", ingested=ingested)
     return ingested

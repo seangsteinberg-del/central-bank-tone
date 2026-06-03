@@ -17,12 +17,12 @@ from sqlalchemy import Engine
 from cbt_core import (
     IndexingService,
     IngestionService,
+    LazyGeminiClient,
     QaService,
     Settings,
     SpeakerService,
     SpeechRetriever,
     ToneService,
-    build_gemini_client,
     create_engine_from_settings,
     make_session_factory,
 )
@@ -52,7 +52,8 @@ def build_services(settings: Settings) -> Services:
     """
     engine = create_engine_from_settings(settings)
     session_factory = make_session_factory(engine)
-    llm = build_gemini_client(settings)
+    # Lazy so the app boots without a Gemini key; only model operations fail (and only on use).
+    llm = LazyGeminiClient(settings)
     speaker_service = SpeakerService(session_factory)
     return Services(
         settings=settings,

@@ -26,6 +26,13 @@ class _StubSource:
         return self._speeches[:limit]
 
 
+class _RaisingSource:
+    name = "broken"
+
+    def fetch(self, *, limit: int) -> list[ScrapedSpeech]:
+        raise RuntimeError("scrape failed")
+
+
 class _RaisingLlm:
     def analyze_tone(self, speech_text: str) -> object:
         raise LlmError("model unavailable")
@@ -88,3 +95,19 @@ def test_run_ingestion_skips_a_speech_that_fails_the_model(
         indexing_service=indexing_service,
     )
     assert count == 0  # the run completed despite the model failure
+
+
+@pytest.mark.unit
+def test_run_ingestion_isolates_a_broken_source(
+    speaker_service: SpeakerService,
+    ingestion_service: IngestionService,
+    indexing_service: IndexingService,
+) -> None:
+    good = _StubSource([_scraped(url="https://x/1", text="inflation will tighten and hike rates")])
+    count = run_ingestion(
+        [_RaisingSource(), good],
+        speaker_service=speaker_service,
+        ingestion_service=ingestion_service,
+        indexing_service=indexing_service,
+    )
+    assert count == 1  # the broken source was skipped; the good one still ingested
