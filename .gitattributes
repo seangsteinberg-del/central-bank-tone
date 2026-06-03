@@ -1,0 +1,6 @@
+# Normalize line endings to LF for all text files so the repo is identical on every platform
+# (Windows dev, Linux CI). ruff format and the diff stay stable regardless of checkout host.
+* text=auto eol=lf
+
+# Generated lockfile: text, LF, but do not show inline diffs in review (it is machine-managed).
+uv.lock linguist-generated=true

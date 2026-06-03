@@ -1,0 +1,21 @@
+[project]
+name = "cbt-core"
+version = "0.1.0"
+description = "Central Bank Tone domain core: schema spine, services, persistence."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pydantic>=2.9",
+  "pydantic-settings>=2.5",
+  "structlog>=24.4",
+  "sqlalchemy>=2.0,<3",
+  "psycopg[binary]>=3.2",
+  "alembic>=1.13",
+]
+
+[build-system]
+requires = ["uv_build>=0.5"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "cbt_core"
+module-root = "src"

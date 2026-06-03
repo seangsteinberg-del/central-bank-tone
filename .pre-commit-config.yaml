@@ -1,0 +1,25 @@
+# Local commit gate. Mirrors the CI quality gate exactly (CLAUDE.md sections 3 and 12) so a
+# green local commit is a green CI run. Install once with: uv run pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --check .
+        language: system
+        pass_filenames: false
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check .
+        language: system
+        pass_filenames: false
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        pass_filenames: false
+      - id: check-imports
+        name: architecture invariants
+        entry: uv run python scripts/check_imports.py
+        language: system
+        pass_filenames: false

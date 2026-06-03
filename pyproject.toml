@@ -1,0 +1,126 @@
+# pyproject.toml  (repo root)
+[project]
+name = "cbt-workspace"
+version = "0.0.0"
+description = "Central Bank Tone: ingest central bank speeches, score tone per speaker, answer questions about each speaker."
+requires-python = ">=3.12,<3.13"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+cbt-core = { workspace = true }
+cbt-api = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-cov>=5.0",
+  "pytest-asyncio>=0.24",
+  "testcontainers[postgres]>=4.8",
+  "httpx>=0.27",
+  "freezegun>=1.5",
+  "ruff>=0.7",
+  "mypy>=1.13",
+  "pre-commit>=4.0",
+  "cbt-core",
+  "cbt-api",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["packages/cbt_core/src", "packages/cbt_api/src"]
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+# Broad on purpose: correctness (E/W/F/B), modernization (UP/FURB/PIE/SIM/C4), security SAST
+# (S, flake8-bandit), exception discipline (BLE/TRY/RSE), structured logging (LOG/G),
+# timezone-aware datetimes (DTZ), pathlib over os.path (PTH), performance (PERF), import
+# hygiene (ICN/TID/FA), no print or dead code in libraries (T20/ERA), private-access
+# discipline (SLF), and docstring presence (D101/D102/D103/D106).
+select = [
+  "E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "PT", "RUF", "ASYNC",
+  "S", "BLE", "TRY", "RSE", "G", "LOG", "DTZ", "PTH", "RET", "ARG",
+  "PIE", "PERF", "FURB", "ISC", "ICN", "TID", "FA", "T20", "ERA", "SLF",
+  "D101", "D102", "D103", "D106",
+]
+ignore = [
+  "E501",
+  "TRY003",  # long messages inline to exceptions; a deliberate, consistent style
+  "ISC001",  # conflicts with the formatter, which owns this
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+  "D101", "D102", "D103", "D106",
+  "S101", "S105", "S106", "S107",
+  "SLF001", "ARG001", "ARG002", "ARG005",
+  "DTZ001", "DTZ005", "BLE001", "RET504",
+]
+"scripts/**" = ["D101", "D102", "D103", "D106", "T20", "S101"]
+# Alembic env + versions are generated/operational glue, not library API: relax docstrings,
+# allow the module-level globals and import side effects alembic requires.
+"packages/cbt_core/src/cbt_core/persistence/migrations/**" = [
+  "D100", "D103", "INP001", "ERA001",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["cbt_core", "cbt_api"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = ["packages/cbt_core/src", "packages/cbt_api/src"]
+files = ["packages/cbt_core/src", "packages/cbt_api/src"]
+# Alembic migration scripts are generated, operational DDL (not typed library API). They are
+# excluded from coverage and relaxed in ruff; exclude them here for the same reason.
+exclude = ["/persistence/migrations/"]
+# Beyond --strict: flag dead branches, tighten checks, keep every `# type: ignore` honest.
+warn_unreachable = true
+extra_checks = true
+enable_error_code = [
+  "ignore-without-code", "unused-ignore", "redundant-expr", "truthy-bool",
+  "possibly-undefined", "redundant-self", "explicit-override", "mutable-override",
+]
+
+# Third-party libs without type stubs: list them here rather than scattering ignores.
+[[tool.mypy.overrides]]
+module = ["testcontainers.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Put the repo root on sys.path so tests can import scripts/check_imports.py (the architecture
+# invariant test). The packages themselves are installed into the venv by uv.
+pythonpath = ["."]
+addopts = "--strict-markers"
+markers = [
+  "unit: pure unit tests, no IO",
+  "integration: requires a container",
+  "web: API TestClient tests",
+  "llm: hits a live external/paid API (opt-in, excluded from CI)",
+  "slow: long-running",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["packages/cbt_core/src", "packages/cbt_api/src"]
+# Alembic migration scripts are generated DDL exercised only by the round-trip integration
+# test (Docker-gated); they are not unit-testable library code.
+omit = ["*/persistence/migrations/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+exclude_also = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
