@@ -27,6 +27,16 @@ The scaffold stays small and every line is exercised. The API must not be expose
 networks until auth exists; this is a known, documented gap rather than a silent one. The
 `actor` plumbing means adding auth is additive, not a refactor.
 
+## Update (2026-06-04): the web UI ships with this gap
+
+The `cbt_web` adapter (ADR 0011) now exposes state-changing routes (`/ui/speakers`, `/ui/ingest`,
+the ask routes) with no authentication and no CSRF token, which the deferred-auth decision above
+covers but which CLAUDE.md section 4 otherwise requires. This is a deliberate, documented
+trust-boundary decision for a single-operator demo/research tool: it is intended to run on
+localhost or a trusted network, and the write routes trigger model spend, so it must not be
+exposed publicly until auth lands. When auth ships, the CSRF/signed-cookie scheme in CLAUDE.md
+section 4 applies to these routes and the adapter gains its auth-failure test.
+
 ## Alternatives rejected
 
 - Build full auth now: speculative surface with no feature using it, and untested branches.

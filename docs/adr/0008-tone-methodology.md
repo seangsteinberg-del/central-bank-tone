@@ -22,21 +22,33 @@ Two complementary signals per speech, both license-clean:
 - Primary: a **Gemini LLM-as-judge** score (`ToneAnalysis`: summary, tone label, score in
   `[-1, 1]`, rationale), already built behind the `LlmClient` boundary (ADR 0007). Gemini is
   multilingual and multi-institution, and a malformed response raises rather than guesses.
-- Baseline: a **deterministic lexicon scorer** (`cbt_core.analysis.lexicon`) implementing the
-  Apel & Blix Grimaldi *net-hawkishness* method with our own hawkish/dovish word lists. It is
-  pure-Python, needs no network, and is fully unit tested. We author the word lists ourselves
-  rather than copying the licensed Loughran-McDonald or non-commercial FOMC dictionaries.
+- Baseline: a **deterministic lexicon scorer** (`cbt_core.analysis.lexicon`) computing a
+  *simplified net-hawkishness ratio* inspired by Apel & Blix Grimaldi (2012) - `(hawkish -
+  dovish) / total` over our own curated hawkish/dovish term lists, with longest-match phrase
+  counting (so a phrase is not double-counted by a substring) and a short negation window. It is
+  not the full sentence-level categorization of the original method; it is a transparent,
+  license-clean floor. We author the word lists ourselves rather than copying the licensed
+  Loughran-McDonald or non-commercial FOMC dictionaries.
 
-Both are stored on each analyzed speech (the model `score` and the `lexicon_score`), so the
-deterministic baseline is a visible, explainable cross-check on the model score. A large
-disagreement is a signal to review, not silently averaged away.
+Both are stored on each analyzed speech (the model `score` and the `lexicon_score`). The
+deterministic baseline is a visible cross-check on the model score, and the disagreement is acted
+on, not just displayed: `analysis.disagrees()` flags an opposite-sign disagreement or a large
+magnitude gap (when the lexicon fired), `IngestionService` sets `needs_review` on the speech and
+its tone observation and logs a WARNING, and the UI shows a "model/lexicon disagree" marker. A
+large disagreement is surfaced for review, not silently averaged away.
+
+The lexicon's accuracy is measured, not asserted: `scripts/eval_tone.py` scores it against the
+annotated FOMC benchmark and reports accuracy, macro-F1, and a confusion matrix (see ADR 0012 and
+`docs/research/tone-evaluation.md`). The same harness scores the Gemini path head-to-head once a
+key is set.
 
 ## Consequences
 
 The product owns its tone signal end to end with no non-commercial dependency, and the lexicon
 gives an auditable, reproducible baseline that works even when the model is unavailable. The cost
-is maintaining the word lists, which are deliberately small and documented. FOMC-RoBERTa and the
-annotated FOMC benchmark remain useful for offline evaluation of the Gemini scores, under their
+is maintaining the word lists, which are deliberately small and documented, and the baseline is a
+deliberately coarse floor (it fires on a minority of sentences; see the evaluation). FOMC-RoBERTa
+and the annotated FOMC benchmark are used for offline evaluation of both scorers under their
 non-commercial terms, without shipping in the product.
 
 ## Alternatives rejected

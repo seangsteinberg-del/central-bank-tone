@@ -58,9 +58,37 @@ All notable changes to this project are documented in this file. The format foll
   analyzed speeches, a per-speaker ask box, and an admin page to register a speaker and ingest a
   speech. htmx 2.0.4 (BSD-2) is vendored as a static asset; the pages degrade gracefully without
   JavaScript. `SpeakerForm`/`AskForm`/`IngestForm` validate every submission at the boundary.
+- Tone evaluation (ADR 0012): `scripts/eval_tone.py` scores the lexicon (and, with a key, Gemini)
+  against the annotated FOMC benchmark and reports accuracy, macro-F1, and a confusion matrix vs a
+  majority-class baseline; `scripts/tone_trajectory.py` charts FOMC net-hawkishness vs the fed funds
+  rate with correlations. Results committed under `docs/research/`.
+- Real model/lexicon cross-check: `cbt_core.analysis.disagrees`, persisted as `lexicon_score` and
+  `needs_review` on the tone observation (migration 0004) and on the speech, logged as a WARNING on
+  divergence and shown as a "model/lexicon disagree" marker in the UI and on the API responses.
+- `LazyGeminiClient`: the app boots without a Gemini key; model operations fail (with a clear
+  `LlmError`) only when invoked. The model id is recorded on each speech (migration 0005).
+- CI (`.github/workflows/ci.yml`): ruff, `mypy --strict`, the architecture check, the test suite
+  with the coverage gate, and `pip-audit`; the Postgres + pgvector integration tests run there.
+- Demo infrastructure: `docker-compose.yml` (pgvector), `scripts/migrate.py`, and a `Makefile`
+  (`make demo`, `make eval`, `make gate`).
 
 ### Changed
 - Replaced the interim `AnalysisService` (raw-text analysis) with `IngestionService`, which
   ingests a full speech with metadata. Unreleased, so no external consumers are affected.
+- The deterministic lexicon now uses longest-match phrase counting and a negation window, with a
+  larger curated term set; ADR 0008 reframes it as a simplified net-hawkishness ratio (not the full
+  Apel & Blix Grimaldi method) and the cross-check is now implemented, not just documented.
+- Gemini tone scoring uses temperature 0 and a scale-anchoring rubric so scores are reproducible
+  and comparable across speeches.
 
 ### Fixed
+- The BIS scraper was rewritten against the live site (a React app): the listing now comes from the
+  RSS feed and the speech body from the `data-react-props` JSON, with institution read from the
+  affiliation clause (not the venue), plus fetcher retry/backoff. The previous selectors could not
+  work against bis.org.
+- The lexicon no longer double-counts a phrase via its substring or cancels a hawkish phrase
+  against a dovish substring (for example "withdraw accommodation").
+- Retrieval (`QaService`) now applies a maximum-distance relevance threshold, so an off-topic
+  question abstains instead of grounding in the nearest-but-irrelevant chunks.
+- The ingestion worker isolates per-source and per-speech failures, so one bad item no longer
+  aborts the run.
