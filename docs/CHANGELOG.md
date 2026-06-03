@@ -38,6 +38,11 @@ All notable changes to this project are documented in this file. The format foll
   source hash (no repeat model spend), analyzes, and persists the speech plus a tone observation
   atomically.
 - Research notes (`docs/research/reusable-components.md`) on reusable prior art and licenses.
+- Retrieval-augmented Q&A (ADR 0009): `pgvector` for vector storage, deterministic
+  `chunk_text` chunking, `LlmClient.embed`/`answer` (Gemini `gemini-embedding-001`, 768-dim), a
+  `speech_chunk` table (migration 0003, HNSW cosine index), `IndexingService`, and `QaService`,
+  which answers grounded in retrieved chunks with citations and abstains when nothing relevant is
+  found.
 
 ### Changed
 - Replaced the interim `AnalysisService` (raw-text analysis) with `IngestionService`, which

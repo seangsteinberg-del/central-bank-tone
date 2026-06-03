@@ -21,7 +21,9 @@ if TYPE_CHECKING:
     from testcontainers.postgres import PostgresContainer
 
 MIGRATIONS_DIR = Path(_persistence.__file__).resolve().parent / "migrations"
-_POSTGRES_IMAGE = "postgres:16-alpine"
+# pgvector image (a superset of postgres) so the speech_chunk vector table and similarity
+# search run in integration tests.
+_POSTGRES_IMAGE = "pgvector/pgvector:pg16"
 
 
 def _start_postgres() -> PostgresContainer:

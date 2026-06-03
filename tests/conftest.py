@@ -24,6 +24,7 @@ from tests._stubs import StubLlmClient
 
 from cbt_api.dependencies import Services
 from cbt_core import (
+    IndexingService,
     IngestionService,
     Settings,
     SpeakerService,
@@ -131,6 +132,18 @@ def ingestion_service(
 ) -> IngestionService:
     """An ingestion service wired to the stub LLM client and the SQLite engine."""
     return IngestionService(session_factory, stub_llm_client, id_factory=id_factory)
+
+
+@pytest.fixture
+def indexing_service(
+    session_factory: sessionmaker[Session],
+    stub_llm_client: StubLlmClient,
+    id_factory: IdFactory,
+) -> IndexingService:
+    """An indexing service wired to the stub LLM client and the SQLite engine."""
+    return IndexingService(
+        session_factory, stub_llm_client, max_chars=200, overlap=20, id_factory=id_factory
+    )
 
 
 @pytest.fixture

@@ -13,14 +13,18 @@ from cbt_core.persistence.base import Base
 from cbt_core.persistence.engine import create_engine_from_settings, make_session_factory
 from cbt_core.persistence.repositories import (
     SpeakerRepository,
+    SpeechChunkRepository,
     SpeechRepository,
+    SpeechRetriever,
     ToneObservationRepository,
 )
 
 __all__ = [
     "Base",
     "SpeakerRepository",
+    "SpeechChunkRepository",
     "SpeechRepository",
+    "SpeechRetriever",
     "ToneObservationRepository",
     "create_engine_from_settings",
     "make_session_factory",

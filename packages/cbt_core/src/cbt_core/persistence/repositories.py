@@ -10,9 +10,10 @@ from __future__ import annotations
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from cbt_core.domain.models import Speaker, ToneObservation
+from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.domain.speech import Speech
 from cbt_core.exceptions import EntityNotFoundError
 from cbt_core.persistence.mappers import (
@@ -23,7 +24,12 @@ from cbt_core.persistence.mappers import (
     speaker_to_row,
     speech_to_row,
 )
-from cbt_core.persistence.rows import SpeakerRow, SpeechRow, ToneObservationRow
+from cbt_core.persistence.rows import (
+    SpeakerRow,
+    SpeechChunkRow,
+    SpeechRow,
+    ToneObservationRow,
+)
 
 
 class SpeakerRepository:
@@ -138,3 +144,108 @@ class SpeechRepository:
         )
         rows = self._session.scalars(statement).all()
         return [row_to_speech(row) for row in rows]
+
+
+class SpeechChunkRepository:
+    """Stores embedded speech chunks and retrieves them by vector similarity.
+
+    ``search`` uses pgvector's cosine distance and therefore runs only on PostgreSQL; the write
+    methods work on any backend.
+    """
+
+    def __init__(self, session: Session) -> None:
+        """Bind the repository to a session.
+
+        Args:
+            session: The active SQLAlchemy session. The caller owns its lifecycle.
+        """
+        self._session = session
+
+    def has_chunks(self, speech_id: UUID) -> bool:
+        """Return whether the speech has already been chunked and embedded."""
+        return (
+            self._session.scalars(
+                select(SpeechChunkRow.id).where(SpeechChunkRow.speech_id == speech_id).limit(1)
+            ).first()
+            is not None
+        )
+
+    def add_chunk(
+        self,
+        *,
+        chunk_id: UUID,
+        speech_id: UUID,
+        chunk_index: int,
+        text: str,
+        embedding: list[float],
+    ) -> None:
+        """Stage one embedded chunk for insertion (the caller commits)."""
+        self._session.add(
+            SpeechChunkRow(
+                id=chunk_id,
+                speech_id=speech_id,
+                chunk_index=chunk_index,
+                body=text,
+                embedding=embedding,
+            )
+        )
+
+    def search(
+        self, speaker_id: UUID, query_embedding: list[float], top_k: int
+    ) -> list[RetrievedChunk]:
+        """Return the ``top_k`` chunks closest to ``query_embedding`` for a speaker.
+
+        Args:
+            speaker_id: Restrict retrieval to this speaker's speeches.
+            query_embedding: The query vector.
+            top_k: The maximum number of chunks to return.
+
+        Returns:
+            The closest chunks, nearest first, each carrying its speech's citation metadata.
+        """
+        distance = SpeechChunkRow.embedding.cosine_distance(query_embedding)
+        statement = (
+            select(
+                SpeechChunkRow.speech_id,
+                SpeechChunkRow.chunk_index,
+                SpeechChunkRow.body,
+                SpeechRow.title,
+                SpeechRow.url,
+                distance.label("distance"),
+            )
+            .join(SpeechRow, SpeechChunkRow.speech_id == SpeechRow.id)
+            .where(SpeechRow.speaker_id == speaker_id)
+            .order_by(distance)
+            .limit(top_k)
+        )
+        rows = self._session.execute(statement).all()
+        return [
+            RetrievedChunk(
+                speech_id=row.speech_id,
+                chunk_index=row.chunk_index,
+                text=row.body,
+                title=row.title,
+                url=row.url,
+                distance=row.distance,
+            )
+            for row in rows
+        ]
+
+
+class SpeechRetriever:
+    """A session-owning chunk retriever for the question-answering service."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        """Bind the retriever to a session factory.
+
+        Args:
+            session_factory: Factory for sessions; one is opened per search.
+        """
+        self._session_factory = session_factory
+
+    def search(
+        self, speaker_id: UUID, query_embedding: list[float], top_k: int
+    ) -> list[RetrievedChunk]:
+        """Retrieve the closest chunks for a speaker (see :meth:`SpeechChunkRepository.search`)."""
+        with self._session_factory() as session:
+            return SpeechChunkRepository(session).search(speaker_id, query_embedding, top_k)

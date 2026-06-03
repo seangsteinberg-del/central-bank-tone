@@ -11,12 +11,14 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -24,6 +26,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from cbt_core.domain.qa import EMBEDDING_DIM
 from cbt_core.domain.registry import CentralBank
 from cbt_core.domain.tone import ToneLabel
 from cbt_core.persistence.base import Base
@@ -109,4 +112,27 @@ class SpeechRow(Base):
             "lexicon_score >= -1.0 AND lexicon_score <= 1.0", name="lexicon_score_in_range"
         ),
         CheckConstraint("length(source_sha256) = 64", name="sha256_length"),
+    )
+
+
+class SpeechChunkRow(Base):
+    """ORM row for an embedded chunk of a speech, used for retrieval (RAG).
+
+    Derived index data: chunks are recomputed deterministically from the immutable speech text,
+    so this table is not append-only. The ``embedding`` column is a pgvector vector and is only
+    queryable with the similarity operators on PostgreSQL.
+    """
+
+    __tablename__ = "speech_chunk"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    speech_id: Mapped[UUID] = mapped_column(
+        ForeignKey("speech.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("speech_id", "chunk_index", name="speech_chunk_speech_id_chunk_index"),
     )

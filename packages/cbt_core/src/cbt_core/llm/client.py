@@ -1,19 +1,27 @@
 """The LLM boundary (CLAUDE.md section 2).
 
-All generative model access goes through this protocol. Services depend on ``LlmClient``, not
-on a concrete provider, so the domain stays testable without the network or a paid API and the
-provider can be swapped behind the interface.
+All generative model access goes through this protocol: tone analysis, embeddings, and grounded
+question answering. Services depend on ``LlmClient``, not on a concrete provider, so the domain
+stays testable without the network or a paid API and the provider can be swapped behind the
+interface.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from cbt_core.domain.analysis import ToneAnalysis
+from cbt_core.domain.qa import EMBEDDING_DIM, RetrievedChunk
+
+# A single embedding vector of dimension EMBEDDING_DIM.
+type Embedding = list[float]
+
+__all__ = ["EMBEDDING_DIM", "Embedding", "LlmClient"]
 
 
 class LlmClient(Protocol):
-    """Protocol for the generative model used to analyze speeches."""
+    """Protocol for the generative model used to analyze speeches and answer questions."""
 
     def analyze_tone(self, speech_text: str) -> ToneAnalysis:
         """Summarize a speech and judge its monetary-policy tone.
@@ -26,5 +34,34 @@ class LlmClient(Protocol):
 
         Raises:
             LlmError: If the model call fails or returns an unusable response.
+        """
+        ...
+
+    def embed(self, texts: Sequence[str]) -> list[Embedding]:
+        """Embed texts into vectors of dimension :data:`EMBEDDING_DIM`.
+
+        Args:
+            texts: The texts to embed.
+
+        Returns:
+            One embedding vector per input text, in order.
+
+        Raises:
+            LlmError: If the model call fails or returns the wrong number of vectors.
+        """
+        ...
+
+    def answer(self, question: str, chunks: Sequence[RetrievedChunk]) -> str:
+        """Answer a question grounded only in the retrieved chunks.
+
+        Args:
+            question: The user's question.
+            chunks: The retrieved context the answer must be grounded in.
+
+        Returns:
+            The grounded answer text.
+
+        Raises:
+            LlmError: If the model call fails or returns an empty answer.
         """
         ...
