@@ -47,3 +47,42 @@ def test_custom_word_lists_are_used() -> None:
     assert score.hawkish_hits == 2
     assert score.dovish_hits == 1
     assert score.score == pytest.approx(1 / 3)
+
+
+@pytest.mark.unit
+def test_phrase_is_not_double_counted_by_its_substring() -> None:
+    # "rate hike" must count once as hawkish, not also as the substring "hike".
+    score = HawkishDovishLexicon().score("the committee discussed a rate hike")
+    assert score.hawkish_hits == 1
+    assert score.dovish_hits == 0
+
+
+@pytest.mark.unit
+def test_hawkish_phrase_is_not_cancelled_by_a_dovish_substring() -> None:
+    # "withdraw accommodation" is hawkish; its substring "accommodation" must not also score dovish.
+    score = HawkishDovishLexicon().score("the committee will withdraw accommodation")
+    assert score.hawkish_hits == 1
+    assert score.dovish_hits == 0
+    assert score.score == 1.0
+
+
+@pytest.mark.unit
+def test_negation_flips_a_dovish_term_to_hawkish() -> None:
+    score = HawkishDovishLexicon().score("policy is not accommodative")
+    assert score.hawkish_hits == 1
+    assert score.dovish_hits == 0
+    assert score.score == 1.0
+
+
+@pytest.mark.unit
+def test_negation_flips_a_hawkish_term_to_dovish() -> None:
+    score = HawkishDovishLexicon().score("there will be no further tightening")
+    assert score.dovish_hits == 1
+    assert score.hawkish_hits == 0
+    assert score.score == -1.0
+
+
+@pytest.mark.unit
+def test_plural_phrase_counts_once() -> None:
+    score = HawkishDovishLexicon().score("downside risks remain elevated")
+    assert score.dovish_hits == 1

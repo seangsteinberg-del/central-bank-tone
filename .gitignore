@@ -22,3 +22,6 @@ coverage.xml
 Thumbs.db
 .idea/
 .vscode/
+
+# Downloaded benchmark corpora (CC BY-NC; fetched on demand, not redistributed here)
+/data/

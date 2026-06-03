@@ -102,7 +102,9 @@ class GeminiClient:
             return []
         response = self._client.models.embed_content(
             model=self._embedding_model,
-            contents=list(texts),
+            # google-genai types `contents` as an invariant list union, so a plain list[str]
+            # is rejected by mypy though it is a valid runtime input.
+            contents=list(texts),  # type: ignore[arg-type]
             config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
         )
         embeddings = response.embeddings
