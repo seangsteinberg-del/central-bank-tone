@@ -29,6 +29,15 @@ def test_long_text_splits_into_bounded_overlapping_chunks() -> None:
 
 
 @pytest.mark.unit
+def test_large_overlap_carries_the_whole_previous_chunk() -> None:
+    # When the overlap budget can hold the entire previous chunk, every word of it carries into
+    # the next chunk's head. The long final word forces the split and cannot itself be broken.
+    chunks = chunk_text("aa bb cccccccc", max_chars=10, overlap=9)
+    assert chunks == ["aa bb", "aa bb cccccccc"]
+    assert chunks[1].split()[:2] == ["aa", "bb"]
+
+
+@pytest.mark.unit
 def test_chunking_is_deterministic() -> None:
     text = " ".join(f"word{i}" for i in range(120))
     assert chunk_text(text, max_chars=80, overlap=10) == chunk_text(text, max_chars=80, overlap=10)
