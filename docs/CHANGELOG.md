@@ -26,11 +26,21 @@ All notable changes to this project are documented in this file. The format foll
 - ADR 0006: decision to use Google Gemini for all LLM work, scrape speeches automatically via a
   future `cbt_worker` adapter, and use no paid third-party APIs.
 - LLM boundary: the `LlmClient` protocol and a Gemini implementation (`google-genai`, ADR 0007),
-  the `ToneAnalysis` domain value, and `AnalysisService`, which derives a summary and tone for a
-  speech and records the tone observation. Gemini settings (`CBT_GEMINI_API_KEY` as `SecretStr`,
+  the `ToneAnalysis` domain value, and Gemini settings (`CBT_GEMINI_API_KEY` as `SecretStr`,
   `CBT_GEMINI_MODEL` defaulting to `gemini-2.5-flash`, `CBT_GEMINI_EMBEDDING_MODEL`); production
   requires a real key.
+- Tone methodology (ADR 0008): a deterministic `HawkishDovishLexicon` baseline (our own word
+  lists, the Apel and Blix Grimaldi net-hawkishness method) as a license-clean cross-check on the
+  Gemini score.
+- Speech ingestion: the `Speech` domain model (source plus its Gemini summary and tone and the
+  lexicon score), an append-only `speech` table (migration 0002, trigger and unique source
+  hash), `SpeechRepository`, and `IngestionService`, which verifies the speaker, deduplicates by
+  source hash (no repeat model spend), analyzes, and persists the speech plus a tone observation
+  atomically.
+- Research notes (`docs/research/reusable-components.md`) on reusable prior art and licenses.
 
 ### Changed
+- Replaced the interim `AnalysisService` (raw-text analysis) with `IngestionService`, which
+  ingests a full speech with metadata. Unreleased, so no external consumers are affected.
 
 ### Fixed

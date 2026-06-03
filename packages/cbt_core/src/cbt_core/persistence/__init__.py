@@ -11,11 +11,16 @@ from __future__ import annotations
 from cbt_core.persistence import rows as _rows  # noqa: F401  (registers ORM tables)
 from cbt_core.persistence.base import Base
 from cbt_core.persistence.engine import create_engine_from_settings, make_session_factory
-from cbt_core.persistence.repositories import SpeakerRepository, ToneObservationRepository
+from cbt_core.persistence.repositories import (
+    SpeakerRepository,
+    SpeechRepository,
+    ToneObservationRepository,
+)
 
 __all__ = [
     "Base",
     "SpeakerRepository",
+    "SpeechRepository",
     "ToneObservationRepository",
     "create_engine_from_settings",
     "make_session_factory",

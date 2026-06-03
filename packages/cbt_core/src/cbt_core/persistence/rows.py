@@ -11,7 +11,17 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, Float, ForeignKey, String, Uuid
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from cbt_core.domain.registry import CentralBank
@@ -58,5 +68,45 @@ class ToneObservationRow(Base):
 
     __table_args__ = (
         CheckConstraint("score >= -1.0 AND score <= 1.0", name="score_in_range"),
+        CheckConstraint("length(source_sha256) = 64", name="sha256_length"),
+    )
+
+
+class SpeechRow(Base):
+    """ORM row for an analyzed speech.
+
+    Immutable once ingested; the append-only guarantee is enforced at the database level by a
+    trigger created in the migration (CLAUDE.md section 4).
+    """
+
+    __tablename__ = "speech"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    speaker_id: Mapped[UUID] = mapped_column(
+        ForeignKey("speaker.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    central_bank: Mapped[CentralBank] = mapped_column(
+        Enum(CentralBank, name="central_bank", native_enum=True), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    url: Mapped[str] = mapped_column(String(2000), nullable=False)
+    delivered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    language: Mapped[str] = mapped_column(String(12), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    tone: Mapped[ToneLabel] = mapped_column(
+        Enum(ToneLabel, name="tone_label", native_enum=True), nullable=False
+    )
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    lexicon_score: Mapped[float] = mapped_column(Float, nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("source_sha256", name="source_sha256"),
+        CheckConstraint("score >= -1.0 AND score <= 1.0", name="score_in_range"),
+        CheckConstraint(
+            "lexicon_score >= -1.0 AND lexicon_score <= 1.0", name="lexicon_score_in_range"
+        ),
         CheckConstraint("length(source_sha256) = 64", name="sha256_length"),
     )

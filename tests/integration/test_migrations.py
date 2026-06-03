@@ -35,7 +35,7 @@ def test_upgrade_downgrade_upgrade_round_trip(fresh_postgres_url: str) -> None:
     finally:
         engine.dispose()
 
-    assert {"speaker", "tone_observation"}.issubset(tables)
+    assert {"speaker", "tone_observation", "speech"}.issubset(tables)
 
 
 @pytest.mark.integration
@@ -53,3 +53,4 @@ def test_downgrade_to_base_drops_all_tables(fresh_postgres_url: str) -> None:
 
     assert "speaker" not in tables
     assert "tone_observation" not in tables
+    assert "speech" not in tables

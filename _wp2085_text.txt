@@ -1,0 +1,261 @@
+===PAGE 1===
+Abstract
+We propose a Hawkish-Dovish (HD) indicator that measures the de-
+gree of ‘hawkishness’ or ‘dovishness’ of the media’s perception of the
+ECB’s tone at each press conference. We compare two methods to cal-
+culate the indicator: semantic orientation and Support Vector Machines
+text classiﬁcation. We show that the latter method tends to provide more
+stable and accurate measurements of perception on a labelled test set.
+Furthermore, we demonstrate the potential use of this indicator with sev-
+eral applications: we perform a correlation analysis with a set of interest
+rates, use Latent Dirichlet Allocation to detect the dominant topics in
+the news articles, and estimate a set of Taylor rules. The ﬁndings provide
+decisive evidence in favour of using an advanced text mining classiﬁcation
+model to measure the medias perception and the Taylor rule application
+conﬁrms that communication plays a signiﬁcant role in enhancing the
+accuracy when trying to estimate the bank’s reaction function.
+JEL codes: C02, C63, E52, E58
+Keywords: Monetary policy, communication, data mining, quantitative meth-
+ods
+ECB Working Paper 2085, July 2017
+1
+===PAGE 2===
+Non-technical summary
+In recent years communication became increasingly important in central banks.
+In particular, after the ﬁnancial crisis, communication has increasingly qualiﬁed
+as a genuine policy tool able to steer interest rates in ﬁnancial markets and drive
+expectations on the course of monetary policy. With oﬃcial interest rates ap-
+proaching zero and thereby reducing their eﬀectiveness, various forms of forward
+guidance (i.e. a verbal commitment on the future course of monetary policy un-
+conditional or conditional to some economic event) were added to the standard
+monetary policy toolkit existing out of interest rates and reﬁnancing instru-
+ments for the banking sector. The growing relevance of communication in the
+conduct of monetary policy was mirrored by a rising interest of academicians
+and practitioners. In particular, a branch of economic research increasingly
+focused on the role of communication in adding valuable information besides
+what is already contained in macroeconomic variables, and in revealing policy
+makers preferences on the course of monetary policy with a view to enhance
+predictability. If the traditional approach consists in analysing how information
+events impact ﬁnancial market developments and expectations of future policy
+moves, more recently analysis shifted towards analysing the language used by
+the central bank in its statements and how such message is perceived by its
+stakeholders. This paper contributes to the latter with a numerical indicator,
+called HD index (after the initials of hawkish and dovish), derived from me-
+dia reports on the ECB press conference. Combining concepts and techniques
+developed in the context of computational linguistics and data mining, the in-
+dicator extracts relevant information on ECB monetary policy as reported by
+external observers and may therefore be interpreted as how media perceive the
+central banks monetary policy messages. For practical reasons, the perception
+is expressed on a numerical interval between -1 (most dovish) and +1 (most
+hawkish). In other words, the indicator indicates whether the perceived tone on
+monetary policy communication is predominantly on the tightening side (hawk-
+ish perception) or rather on the loosening side (dovish perception). Although
+the approach to quantify communication is not new, the approach proposed in
+this paper is original in various dimensions. First, the indicator does not mea-
+sure directly oﬃcial central bank communication but how such communication
+is received and interpreted with the crucial support of data mining techniques.
+Second, two diﬀerent techniques are employed to compute the HD index: one
+based on the semantic orientation (SO) and the second on text classiﬁcation
+using Support Vector Machines (SVM). The former, the most commonly used
+by researchers, measures how often the ECB is mentioned in a news article to-
+gether with a number of given hawkish and dovish words or expressions, while
+the latter, computationally more complex, uses a classiﬁcation model to predict
+the tone of an article. Both methods are applied to a data set of around 9,000
+articles published between January 1999 and March 2016 in order to assess
+which methodology produces better results. Based on various criteria (event
+ECB Working Paper 2085, July 2017
+2
+===PAGE 3===
+analysis, correlations with actual interest rates and classiﬁcation method) the
+SVM methodology tends to produce better and more reliable results. Third,
+in addition to its superiority on the SO, the SVM classiﬁcation model can be
+used to analyse the terms most frequently employed by media in relation to a
+likely future course of monetary policy. Finally, an expanded Taylor rule frame-
+work including the HD index alongside traditional variables measuring inﬂation
+expectations and economic slack, is presented. Results suggest that the signif-
+icance of the HD index as well as a relatively better ﬁt conﬁrm the positive
+role of ECB communication in enhancing the accuracy when trying to estimate
+the bank’s reaction function, and thus that, on average, the ECB messages are
+correctly understood by its media watchers.
+ECB Working Paper 2085, July 2017
+3
+===PAGE 4===
+1 Introduction
+“In a market economy, transparency and communication are central to
+the eﬀectiveness of our monetary policy.”
+– Mario Draghi
+During the ﬁnancial crisis, monetary policy interest rates reached levels close
+to zero in most major central banks. As a result, communication has increas-
+ingly qualiﬁed as a powerful instrument able to inﬂuence ﬁnancial market de-
+velopments and drive expectations. Forward guidance, i.e. a form of verbal
+commitment to keep interest rates at a certain level for a period of time, possi-
+bly conditional to certain economic developments, became a genuine monetary
+policy instrument for many major central banks in addition to the standard
+toolkit of interest rates and reﬁnancing instruments for the banking sector.
+Mirroring the increased role of communication in central banks, economic
+research has started to focus on how central bank communication adds informa-
+tion to that which is already contained in macroeconomic variables and how it
+may reveal policy makers individual preference functions. The overall objective
+is to enhance predictability of monetary policy decisions. The traditional ap-
+proach focuses mainly on how information events aﬀect both ﬁnancial market
+developments and expectations of future policy moves.
+Media usually analyse central banks’ communication with a view to ex-
+tract information about likely future moves of monetary policy rates (Hayo &
+Neuenkirch, 2015). Unlike market indicators, extracting relevant information
+on monetary policy from media reports is not straightforward and requires the
+translation of words into a numerical representation. Ideally, the resulting quan-
+titative indicator should represent the media’s perception of the central banks
+message and should be able to indicate whether expectations are more on the
+tightening side (hawkish perception) or rather on the loosening side (dovish
+perception).
+In recent years, a number of studies have developed quantitative tools to
+measure (or, at least, to express on a numerical scale) the information con-
+tained in oﬃcial central banks’ statements (see e.g. KOF Swiss Economic In-
+stitute (2007); Lucca & Trebbi (2009)). In other words, this approach can be
+characterized as an attempt to quantify information in communication, which
+is qualitative by nature. In this paper, we present the development of an in-
+dex that measures the interpretation of the European Central Bank’s oﬃcial
+communication, using data mining techniques. Concretely, we want to distin-
+guish articles that perceive the ECB’s statement as predominantly hawkish -
+and thus pointing towards likely future policy rate increases - from articles that
+perceive the statement to be rather dovish, hinting at declines or no increases
+in policy rates. We use two diﬀerent techniques to measure the tone expressed
+in an article published after the press conference: semantic orientation and text
+classiﬁcation using Support Vector Machines. The former measures how often
+the ECB is mentioned in a news article together with respectively hawkish and
+ECB Working Paper 2085, July 2017
+4
+===PAGE 5===
+dovish words, the latter uses a classiﬁcation model to predict the tone of a news
+article. We apply both methods to a data set of approximately 8,500 articles
+from the Dow Jones Factiva database, published between January 1999 and
+March 2016, in order to create the HD-indicator (after the initials of hawkish
+and dovish). This indicator represents the average hawkishness or dovishness
+of the ECB as perceived by the media after each press conference.
+The contribution of this paper is four-fold. First and most obviously, we
+present a methodology to compute the quantitative indicator with the character-
+istics described above. Secondly, we demonstrate how data mining techniques,
+and more speciﬁcally text mining techniques, can bring value in the process of
+decision making for central bankers (in particular, on how communication is
+perceived). Thirdly, by constructing a speciﬁc Support Vector Machines (SVM)
+classiﬁcation model, we can analyse which terms are most frequently used by
+the written media to refer to a likely future contraction or expansion of mone-
+tary policy. Finally, we show a number of potential uses of the HD indicator:
+assessing its relation to interest rates, the use of topic models for a qualitative
+assessment of text-based indicators, and a Taylor rule application.
+2 Subjective versus automated indicators for cen-
+tral bank’s communication
+A broad distinction can be made between subjective measures and (semi-)automated
+measures developed in the economic literature. A subjective indicator is based
+on the subjective evaluation of oﬃcial statements or documents by one or more
+expert analysts on given points in time. Especially when expert groups are in-
+volved, such evaluation is often expressed on a ﬁxed scale expressing the inten-
+sity of dovishness/hawkishness as a suitable combination of the perceived tone
+by every single analyst. In general, the evaluation is not based on predeﬁned
+procedures and therefore typically suﬀers from a low degree of repeatability and
+time-consistency. By contrast, an automated indicator is based on ﬁxed numer-
+ical algorithms and can be replicated consistently. It should be stressed that an
+automated index should not be considered as being totally objective, since the
+choice of the predeﬁned procedure is often made by analysts and the processing
+of the input may require subjective judgement such as the labelling of a train-
+ing set. In this respect, all available indicators contain subjective elements in
+various degrees. However, automatic computational features generally allow a
+relatively high degree of repeatability.
+Regarding the subjective measures, indicators based on the Introductory
+Statement of the ECB’s press conferences were created by Berger et al. (2011);
+Musard-Gies (2006); Rosa & Verga (2007); Rosa et al. (2008). A relatively
+popular indicator within the subjective class is the KOF Monetary Policy Com-
+municator (MPC), which is regularly produced by the KOF Swiss Economic
+Institute of the Swiss Federal Institute of Technology (ETH) in Zurich and fol-
+ECB Working Paper 2085, July 2017
+5
+===PAGE 6===
+lows the ECB press conference schedule (KOF Swiss Economic Institute, 2007).1
+The index is constructed by coding the ECB’s statements on upside and down-
+side risks to price stability as respectively hawkish (+1) and dovish (-1). The
+codings are provided by media analysts of Media Tenor, a media research in-
+stitute. The KOF MPC is obtained by aggregating the single codings of the
+statements on risks to price stability, relative to all statements about price sta-
+bility in the introductory statement, including neutral (or factual) statements.
+By construction, the KOF MPC is restricted to take values in the interval [-1;
++1]: the larger a positive (negative) value of the KOF MPC, the stronger the
+ECB communicated that there are upside (downside) risks to price stability. As
+opposed to the HD-index, the KOF MPC measures the tone of the statements
+and not the media’s perception of the statements.
+Contributions to (semi)-automated measures are relatively scarce in the eco-
+nomic literature. Diﬃculties are mainly the repeatability of criteria used to
+classify texts (which by their nature relies on individual judgement) and the
+computational complexity often associated with employing expert algorithms.
+Most studies using objective measures focus on the text of the press statement
+itself. For example, Heinemann & Ullrich (2005) proposed a Wording Indicator
+that associates words and expressions, used in central bank communication, to
+monetary policy cycles; and Apel & Grimaldi (2012) proposed to measure the
+tone of monetary policy statements by counting a set of key words used in the
+Swedish Central Bank’s minutes. A diﬀerent approach was followed by Lucca
+& Trebbi (2009), who analysed Federal Reserve monetary policy statements by
+measuring the tone of the statement’s media coverage and not the statement it-
+self. They used semantic orientation to measure the degree of the news reports’
+hawkishness/dovishness in a three day window around the press conference. In
+this paper, we start from Lucca and Trebbi’s approach to measure the media’s
+perception of the ECB’s monetary policy statements, which is why we analyse
+news articles and not the statement itself. To measure the perception captured
+by the HD-index, we limit the scope to three days around the press conference
+(one day before the press conference, the day of the conference and the day
+after) and use an adjusted version of semantic orientation rescaled in the in-
+terval [-1; +1]. Within the economic literature on (semi)-automated measures,
+researchers focus on the use of predeﬁned key words and dictionaries to quan-
+tify the information contained in text. In this paper we propose advanced text
+mining techniques as alternative to the predeﬁned word lists. We compare the
+use of text classiﬁcation models to the semantic orientation method in order to
+investigate if more advanced computational techniques could lead to improved
+measurements of the media’s tone.
+1Based on the information provided by the KOF Institute, it is not clear if the index should
+be considered as purely subjective. However, given its low degree of reproducibility, the index
+is classiﬁed as subjective.
+ECB Working Paper 2085, July 2017
+6
+===PAGE 7===
+3 The HD-index
+To compute the HD-index we apply two diﬀerent methodologies: semantic ori-
+entation and text classiﬁcation.
+The semantic orientation approach was inspired by the methodology orig-
+inally proposed by Lucca & Trebbi (2009), who analysed how Federal Open
+Market Committee (FOMC) monetary policy statements were reﬂected in press
+reports. Semantic orientation is a concept from computational linguistics and
+deﬁnes the position of a word or string of words between two opposite concepts.
+In the research literature this concept is most often used to measure the degree
+of positiveness or negativeness of a given word or set of words. Turney (2002)
+has used semantic orientation to classify reviews as positive or negative. For a
+given phrase, he deﬁned its semantic orientation score as the diﬀerence between
+the strength of its association with a set of positive words and a set of negative
+words, using Pointwise Mutual Information as a measure for association. In
+this way, the indicator expresses the perception of the ECB’s press statements
+on a numeric scale reﬂecting the relative frequency of two opposite concepts (in
+this case, dovish or hawkish) in a news article by counting the co-occurrences
+of strings referring to the ECB with words and expressions that are normally
+associated with these concepts. Using this method, we calculate the semantic
+orientation score for each article in our corpus of slightly less than 9,000 articles,
+published between January 1999 and January 2016. The HD-index created us-
+ing the semantic orientation scores will be referred to as HD
+SO and is explained
+in more detail next.
+The alternative methodology presented in this paper, applies text mining
+techniques to the data set of articles in order to build a model that classiﬁes each
+article as either hawkish or dovish, while simultaneously assessing the magnitude
+of the hawkishness or dovishness. Text mining is the process of deriving high
+quality information from text documents using techniques from data mining,
+statistics, information retrieval, machine learning and computational linguistics.
+We apply a Support Vector Machines classiﬁcation model on the same data set,
+trained on a sample with a vocabulary of 6,245 words. The resulting HD-index
+will be referred to as HD
+SVM.
+To compute our HD-index, we used articles extracted from the Dow Jones
+Factiva database. We have crawled for articles that mention the ECB in a
+two-day window after the press conference. We have searched for articles in
+English, that mention the words ‘ECB’ or ‘European Central Bank’. To select to
+news sources, we choose the categories ‘Major News and Business Publications:
+Europe’ and ‘Major News and Business Publications: US’. Figure 1 shows the
+news sources represented by our crawled data set and their respective proportion
+of articles in the corpus.
+ECB Working Paper 2085, July 2017
+7

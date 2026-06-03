@@ -6,8 +6,8 @@ repositories, the engine, or the logger directly.
 
 from __future__ import annotations
 
-from cbt_core.services.analysis_service import AnalysisService, SpeechAnalysisResult
+from cbt_core.services.ingestion_service import IngestionService
 from cbt_core.services.speaker_service import SpeakerService
 from cbt_core.services.tone_service import ToneService
 
-__all__ = ["AnalysisService", "SpeakerService", "SpeechAnalysisResult", "ToneService"]
+__all__ = ["IngestionService", "SpeakerService", "ToneService"]

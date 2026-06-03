@@ -24,7 +24,7 @@ from tests._stubs import StubLlmClient
 
 from cbt_api.dependencies import Services
 from cbt_core import (
-    AnalysisService,
+    IngestionService,
     Settings,
     SpeakerService,
     ToneAnalysis,
@@ -124,13 +124,13 @@ def stub_llm_client(stub_tone_analysis: ToneAnalysis) -> StubLlmClient:
 
 
 @pytest.fixture
-def analysis_service(
+def ingestion_service(
+    session_factory: sessionmaker[Session],
     stub_llm_client: StubLlmClient,
-    speaker_service: SpeakerService,
-    tone_service: ToneService,
-) -> AnalysisService:
-    """An analysis service wired to the stub LLM client and SQLite-backed services."""
-    return AnalysisService(stub_llm_client, speaker_service, tone_service)
+    id_factory: IdFactory,
+) -> IngestionService:
+    """An ingestion service wired to the stub LLM client and the SQLite engine."""
+    return IngestionService(session_factory, stub_llm_client, id_factory=id_factory)
 
 
 @pytest.fixture
