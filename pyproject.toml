@@ -33,6 +33,7 @@ dev = [
   "cbt-worker",
   "cbt-web",
   "matplotlib>=3.10.9",
+  "pip-audit>=2.10.0",
 ]
 
 [tool.ruff]
