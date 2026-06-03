@@ -182,6 +182,14 @@ def test_admin_page_renders_forms(web_client: TestClient) -> None:
     assert "Ingest a speech" in response.text
 
 
+@pytest.mark.web
+@pytest.mark.parametrize("asset", ["/static/app.css", "/static/vendor/htmx.min.js"])
+def test_static_assets_are_served(web_client: TestClient, asset: str) -> None:
+    response = web_client.get(asset)
+    assert response.status_code == 200
+    assert response.content  # the vendored asset is reachable and non-empty
+
+
 class _FailingLlm:
     """An LLM client whose every call raises, to exercise the 500 error page."""
 
