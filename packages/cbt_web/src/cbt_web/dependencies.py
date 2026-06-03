@@ -60,7 +60,7 @@ def build_services(settings: Settings) -> Services:
         engine=engine,
         speaker_service=speaker_service,
         tone_service=ToneService(session_factory),
-        ingestion_service=IngestionService(session_factory, llm),
+        ingestion_service=IngestionService(session_factory, llm, model_id=settings.gemini_model),
         indexing_service=IndexingService(session_factory, llm),
         qa_service=QaService(llm, SpeechRetriever(session_factory), speaker_service),
     )

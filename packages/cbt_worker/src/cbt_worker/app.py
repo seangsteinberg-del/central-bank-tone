@@ -11,8 +11,8 @@ import httpx
 from cbt_core import (
     IndexingService,
     IngestionService,
+    LazyGeminiClient,
     SpeakerService,
-    build_gemini_client,
     configure_logging,
     create_engine_from_settings,
     get_settings,
@@ -36,12 +36,12 @@ def main() -> int:  # pragma: no cover - composition root wiring, exercised in p
     configure_logging(environment=settings.environment)
     engine = create_engine_from_settings(settings)
     session_factory = make_session_factory(engine)
-    llm = build_gemini_client(settings)
+    llm = LazyGeminiClient(settings)
 
     run_ingestion(
         [BisSpeechSource(_http_fetcher)],
         speaker_service=SpeakerService(session_factory),
-        ingestion_service=IngestionService(session_factory, llm),
+        ingestion_service=IngestionService(session_factory, llm, model_id=settings.gemini_model),
         indexing_service=IndexingService(session_factory, llm),
     )
     return 0

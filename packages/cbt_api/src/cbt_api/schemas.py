@@ -112,6 +112,7 @@ class SpeechResponse(BaseModel):
     lexicon_score: float
     rationale: str
     needs_review: bool
+    model_id: str
     source_sha256: str = Field(pattern=_SHA256_PATTERN)
 
     @classmethod
@@ -131,6 +132,7 @@ class SpeechResponse(BaseModel):
             lexicon_score=speech.lexicon_score,
             rationale=speech.rationale,
             needs_review=speech.needs_review,
+            model_id=speech.model_id,
             source_sha256=speech.source_sha256,
         )
 

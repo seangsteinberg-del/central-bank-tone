@@ -134,7 +134,9 @@ def ingestion_service(
     id_factory: IdFactory,
 ) -> IngestionService:
     """An ingestion service wired to the stub LLM client and the SQLite engine."""
-    return IngestionService(session_factory, stub_llm_client, id_factory=id_factory)
+    return IngestionService(
+        session_factory, stub_llm_client, id_factory=id_factory, model_id="gemini-test"
+    )
 
 
 @pytest.fixture

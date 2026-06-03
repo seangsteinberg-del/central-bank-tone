@@ -89,6 +89,7 @@ def speech_to_row(speech: Speech) -> SpeechRow:
         lexicon_score=speech.lexicon_score,
         rationale=speech.rationale,
         needs_review=speech.needs_review,
+        model_id=speech.model_id,
     )
 
 
@@ -117,4 +118,5 @@ def row_to_speech(row: SpeechRow) -> Speech:
         lexicon_score=row.lexicon_score,
         rationale=row.rationale,
         needs_review=row.needs_review,
+        model_id=row.model_id,
     )

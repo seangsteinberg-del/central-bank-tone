@@ -41,6 +41,8 @@ class Speech(BaseModel):
         needs_review: True when the model ``score`` and ``lexicon_score`` disagreed enough to
             flag for review (ADR 0008): an opposite-sign disagreement or a large magnitude gap
             when the lexicon found signal.
+        model_id: The model that produced the analysis (for example ``gemini-2.5-flash``),
+            recorded so the tone series stays comparable as the model changes over time.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -60,6 +62,7 @@ class Speech(BaseModel):
     lexicon_score: float = Field(ge=-1.0, le=1.0)
     rationale: str = Field(min_length=1, max_length=2000)
     needs_review: bool = False
+    model_id: str = Field(default="unknown", min_length=1, max_length=100)
 
     @field_validator("delivered_at")
     @classmethod

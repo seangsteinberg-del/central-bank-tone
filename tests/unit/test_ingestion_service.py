@@ -45,6 +45,7 @@ def test_ingest_persists_model_tone_and_lexicon_baseline(
     assert speech.summary == stub_tone_analysis.summary
     assert speech.central_bank is CentralBank.FEDERAL_RESERVE
     assert speech.lexicon_score > 0  # the source text is hawkish
+    assert speech.model_id == "gemini-test"  # the configured model is recorded on the speech
 
 
 @pytest.mark.unit

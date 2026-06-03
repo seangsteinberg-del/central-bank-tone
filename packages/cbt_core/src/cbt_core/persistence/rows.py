@@ -111,6 +111,7 @@ class SpeechRow(Base):
     lexicon_score: Mapped[float] = mapped_column(Float, nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    model_id: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")
 
     __table_args__ = (
         UniqueConstraint("source_sha256", name="source_sha256"),

@@ -40,6 +40,7 @@ class IngestionService:
         *,
         lexicon: HawkishDovishLexicon | None = None,
         id_factory: IdFactory = default_id_factory,
+        model_id: str = "unknown",
     ) -> None:
         """Build the service.
 
@@ -48,11 +49,15 @@ class IngestionService:
             llm_client: The LLM boundary used to summarize and score the speech.
             lexicon: The deterministic lexicon baseline; a default one is used if not supplied.
             id_factory: Source of new identifiers. Inject a deterministic one in tests.
+            model_id: The configured model identifier, recorded on each speech so the tone
+                series stays comparable as the model changes (the adapter injects it from
+                settings).
         """
         self._session_factory = session_factory
         self._llm = llm_client
         self._lexicon = lexicon if lexicon is not None else HawkishDovishLexicon()
         self._id_factory = id_factory
+        self._model_id = model_id
 
     def ingest_speech(
         self,
@@ -133,6 +138,7 @@ class IngestionService:
             lexicon_score=lexicon_result.score,
             rationale=analysis.rationale,
             needs_review=needs_review,
+            model_id=self._model_id,
         )
         observation = ToneObservation(
             id=self._id_factory(),

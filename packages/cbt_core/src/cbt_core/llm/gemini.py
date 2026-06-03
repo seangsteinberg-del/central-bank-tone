@@ -24,8 +24,13 @@ _logger = get_logger(__name__)
 _SYSTEM_INSTRUCTION = (
     "You are a central bank communications analyst. Read the speech and return a concise "
     "summary, the monetary-policy tone as one of hawkish, dovish, neutral, or mixed, a "
-    "continuous score from -1.0 (most dovish) to 1.0 (most hawkish), and a one-line rationale. "
-    "Judge only what the text supports; do not speculate beyond it."
+    "continuous score, and a one-line rationale. Anchor the score on this scale so it is "
+    "comparable across speeches: +1.0 is unambiguously hawkish (urging tighter policy: rate "
+    "hikes, withdrawing accommodation, fighting inflation); -1.0 is unambiguously dovish (urging "
+    "easier policy: rate cuts, stimulus, supporting growth); 0.0 is balanced or procedural; "
+    "intermediate values reflect the strength of the lean (for example +0.5 is moderately "
+    "hawkish, -0.3 mildly dovish). Use 'mixed' only when the speech makes strong arguments in "
+    "both directions. Judge only what the text supports; do not speculate beyond it."
 )
 
 _ANSWER_INSTRUCTION = (
@@ -70,7 +75,9 @@ class GeminiClient:
                 system_instruction=_SYSTEM_INSTRUCTION,
                 response_mime_type="application/json",
                 response_schema=ToneAnalysis,
-                temperature=0.2,
+                # Greedy decoding so the tone score is reproducible: the same speech scores the
+                # same way across runs, which a non-zero temperature would not guarantee.
+                temperature=0.0,
             ),
         )
         parsed = response.parsed
