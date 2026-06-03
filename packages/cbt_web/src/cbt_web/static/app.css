@@ -113,6 +113,9 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .tone-badge.neutral { background: var(--neutral); }
 .tone-badge.mixed { background: var(--mixed); }
 
+/* Cross-check disagreement marker */
+.review-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; color: var(--mixed); background: #fff7ed; border: 1px solid #fed7aa; text-transform: uppercase; letter-spacing: 0.3px; }
+
 /* Tone timeline (diverging bars around a neutral midline) */
 .timeline-section, .speeches-section { margin-top: 28px; }
 .timeline { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; }

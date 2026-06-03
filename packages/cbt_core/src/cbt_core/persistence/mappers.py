@@ -43,6 +43,8 @@ def observation_to_row(observation: ToneObservation) -> ToneObservationRow:
         tone=observation.tone,
         score=observation.score,
         source_sha256=observation.source_sha256,
+        lexicon_score=observation.lexicon_score,
+        needs_review=observation.needs_review,
     )
 
 
@@ -64,6 +66,8 @@ def row_to_observation(row: ToneObservationRow) -> ToneObservation:
         tone=row.tone,
         score=row.score,
         source_sha256=row.source_sha256,
+        lexicon_score=row.lexicon_score,
+        needs_review=row.needs_review,
     )
 
 
@@ -84,6 +88,7 @@ def speech_to_row(speech: Speech) -> SpeechRow:
         score=speech.score,
         lexicon_score=speech.lexicon_score,
         rationale=speech.rationale,
+        needs_review=speech.needs_review,
     )
 
 
@@ -111,4 +116,5 @@ def row_to_speech(row: SpeechRow) -> Speech:
         score=row.score,
         lexicon_score=row.lexicon_score,
         rationale=row.rationale,
+        needs_review=row.needs_review,
     )

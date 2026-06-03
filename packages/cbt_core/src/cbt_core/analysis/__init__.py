@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 from cbt_core.analysis.chunking import chunk_text
-from cbt_core.analysis.lexicon import HawkishDovishLexicon, LexiconScore
+from cbt_core.analysis.lexicon import (
+    DISAGREEMENT_THRESHOLD,
+    HawkishDovishLexicon,
+    LexiconScore,
+    disagrees,
+)
 
-__all__ = ["HawkishDovishLexicon", "LexiconScore", "chunk_text"]
+__all__ = [
+    "DISAGREEMENT_THRESHOLD",
+    "HawkishDovishLexicon",
+    "LexiconScore",
+    "chunk_text",
+    "disagrees",
+]

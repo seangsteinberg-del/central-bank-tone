@@ -72,6 +72,32 @@ def test_ingest_appends_a_tone_observation(
     assert len(observations) == 1
     assert observations[0].source_sha256 == speech.source_sha256
     assert observations[0].tone == speech.tone
+    assert observations[0].lexicon_score == speech.lexicon_score
+
+
+@pytest.mark.unit
+def test_ingest_agreeing_tone_is_not_flagged_for_review(
+    ingestion_service: IngestionService, speaker_service: SpeakerService
+) -> None:
+    # The stub model returns a hawkish score; hawkish source text agrees with the lexicon.
+    speaker_id = _register(speaker_service)
+    speech = _ingest(ingestion_service, speaker_id, text=_HAWKISH_TEXT)
+    assert speech.needs_review is False
+
+
+@pytest.mark.unit
+def test_ingest_flags_review_when_model_and_lexicon_disagree(
+    ingestion_service: IngestionService,
+    speaker_service: SpeakerService,
+    tone_service: ToneService,
+) -> None:
+    # The stub model is hawkish (+0.6); a clearly dovish text makes the lexicon disagree.
+    speaker_id = _register(speaker_service)
+    dovish = "We will ease policy, cut rates, and stay accommodative and patient amid headwinds."
+    speech = _ingest(ingestion_service, speaker_id, text=dovish)
+    assert speech.lexicon_score < 0
+    assert speech.needs_review is True
+    assert tone_service.observations_for(speaker_id)[0].needs_review is True
 
 
 @pytest.mark.unit

@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -68,9 +69,14 @@ class ToneObservationRow(Base):
     )
     score: Mapped[float] = mapped_column(Float, nullable=False)
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    lexicon_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         CheckConstraint("score >= -1.0 AND score <= 1.0", name="score_in_range"),
+        CheckConstraint(
+            "lexicon_score >= -1.0 AND lexicon_score <= 1.0", name="lexicon_score_in_range"
+        ),
         CheckConstraint("length(source_sha256) = 64", name="sha256_length"),
     )
 
@@ -104,6 +110,7 @@ class SpeechRow(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False)
     lexicon_score: Mapped[float] = mapped_column(Float, nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         UniqueConstraint("source_sha256", name="source_sha256"),

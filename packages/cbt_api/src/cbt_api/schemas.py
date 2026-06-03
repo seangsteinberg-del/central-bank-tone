@@ -66,6 +66,8 @@ class ToneObservationResponse(BaseModel):
     tone: ToneLabel
     score: float
     source_sha256: str = Field(pattern=_SHA256_PATTERN)
+    lexicon_score: float
+    needs_review: bool
 
     @classmethod
     def from_domain(cls, observation: ToneObservation) -> ToneObservationResponse:
@@ -77,6 +79,8 @@ class ToneObservationResponse(BaseModel):
             tone=observation.tone,
             score=observation.score,
             source_sha256=observation.source_sha256,
+            lexicon_score=observation.lexicon_score,
+            needs_review=observation.needs_review,
         )
 
 
@@ -107,6 +111,7 @@ class SpeechResponse(BaseModel):
     score: float
     lexicon_score: float
     rationale: str
+    needs_review: bool
     source_sha256: str = Field(pattern=_SHA256_PATTERN)
 
     @classmethod
@@ -125,6 +130,7 @@ class SpeechResponse(BaseModel):
             score=speech.score,
             lexicon_score=speech.lexicon_score,
             rationale=speech.rationale,
+            needs_review=speech.needs_review,
             source_sha256=speech.source_sha256,
         )
 

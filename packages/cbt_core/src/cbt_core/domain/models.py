@@ -50,6 +50,11 @@ class ToneObservation(BaseModel):
         score: Continuous tone in ``[-1.0, 1.0]`` (negative dovish, positive hawkish).
         source_sha256: Lowercase hex sha256 of the source speech text. The text itself is
             never stored on the observation (CLAUDE.md section 7).
+        lexicon_score: The deterministic lexicon's score for the same text, the auditable
+            cross-check on ``score``. Defaults to ``0.0`` for manually recorded observations
+            that have no lexicon context.
+        needs_review: True when ``score`` and ``lexicon_score`` disagreed enough to flag for
+            review (ADR 0008). A PM can filter the tone series on this confidence marker.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -60,6 +65,8 @@ class ToneObservation(BaseModel):
     tone: ToneLabel
     score: float = Field(ge=-1.0, le=1.0)
     source_sha256: str = Field(pattern=_SHA256_PATTERN)
+    lexicon_score: float = Field(ge=-1.0, le=1.0, default=0.0)
+    needs_review: bool = False
 
     @field_validator("observed_at")
     @classmethod

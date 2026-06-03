@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from cbt_core.analysis.lexicon import HawkishDovishLexicon
+from cbt_core.analysis.lexicon import HawkishDovishLexicon, disagrees
 from cbt_core.domain.models import ToneObservation
 from cbt_core.domain.speech import Speech
 from cbt_core.llm.client import LlmClient
@@ -104,9 +104,19 @@ class IngestionService:
             log.info("speech_already_ingested", speech_id=str(existing.id))
             return existing
 
-        # Phase 2: analyze (no transaction held across the model call).
-        lexicon_score = self._lexicon.score(text).score
+        # Phase 2: analyze (no transaction held across the model call). The deterministic
+        # lexicon is a cross-check on the model: a large disagreement is flagged, not averaged
+        # away (ADR 0008), and surfaced on the speech and its tone observation.
+        lexicon_result = self._lexicon.score(text)
         analysis = self._llm.analyze_tone(text)
+        needs_review = disagrees(analysis.score, lexicon_result)
+        if needs_review:
+            log.warning(
+                "tone_cross_check_disagreement",
+                model_score=analysis.score,
+                lexicon_score=lexicon_result.score,
+                model_tone=analysis.tone.value,
+            )
         speech = Speech(
             id=self._id_factory(),
             speaker_id=speaker_id,
@@ -120,8 +130,9 @@ class IngestionService:
             summary=analysis.summary,
             tone=analysis.tone,
             score=analysis.score,
-            lexicon_score=lexicon_score,
+            lexicon_score=lexicon_result.score,
             rationale=analysis.rationale,
+            needs_review=needs_review,
         )
         observation = ToneObservation(
             id=self._id_factory(),
@@ -130,6 +141,8 @@ class IngestionService:
             tone=analysis.tone,
             score=analysis.score,
             source_sha256=source_sha256,
+            lexicon_score=lexicon_result.score,
+            needs_review=needs_review,
         )
 
         # Phase 3: persist the speech and its tone signal atomically.
@@ -143,7 +156,8 @@ class IngestionService:
             speech_id=str(speech.id),
             tone=analysis.tone.value,
             score=analysis.score,
-            lexicon_score=lexicon_score,
+            lexicon_score=lexicon_result.score,
+            needs_review=needs_review,
             summary_chars=len(analysis.summary),
             source_bytes=len(encoded),
         )

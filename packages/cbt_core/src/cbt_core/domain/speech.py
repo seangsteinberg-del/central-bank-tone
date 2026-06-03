@@ -38,6 +38,9 @@ class Speech(BaseModel):
             hawkish).
         lexicon_score: The deterministic lexicon baseline tone in ``[-1.0, 1.0]``.
         rationale: The model's one-line justification for the tone.
+        needs_review: True when the model ``score`` and ``lexicon_score`` disagreed enough to
+            flag for review (ADR 0008): an opposite-sign disagreement or a large magnitude gap
+            when the lexicon found signal.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -56,6 +59,7 @@ class Speech(BaseModel):
     score: float = Field(ge=-1.0, le=1.0)
     lexicon_score: float = Field(ge=-1.0, le=1.0)
     rationale: str = Field(min_length=1, max_length=2000)
+    needs_review: bool = False
 
     @field_validator("delivered_at")
     @classmethod

@@ -41,6 +41,8 @@ def test_observation_round_trips_through_a_row() -> None:
         tone=ToneLabel.HAWKISH,
         score=0.8,
         source_sha256=_SHA,
+        lexicon_score=-0.5,
+        needs_review=True,
     )
     assert row_to_observation(observation_to_row(observation)) == observation
 
@@ -55,6 +57,8 @@ def test_naive_stored_timestamp_is_read_back_as_utc() -> None:
         tone=ToneLabel.DOVISH,
         score=-0.4,
         source_sha256=_SHA,
+        lexicon_score=-0.3,
+        needs_review=False,
     )
     observation = row_to_observation(row)
     assert observation.observed_at.tzinfo is not None

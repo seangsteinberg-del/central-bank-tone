@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cbt_core.analysis.lexicon import HawkishDovishLexicon
+from cbt_core.analysis.lexicon import HawkishDovishLexicon, LexiconScore, disagrees
 
 
 @pytest.mark.unit
@@ -86,3 +86,28 @@ def test_negation_flips_a_hawkish_term_to_dovish() -> None:
 def test_plural_phrase_counts_once() -> None:
     score = HawkishDovishLexicon().score("downside risks remain elevated")
     assert score.dovish_hits == 1
+
+
+@pytest.mark.unit
+def test_disagrees_is_false_when_lexicon_abstains() -> None:
+    # No terms fired: the lexicon cannot disagree, whatever the model said.
+    abstained = LexiconScore(score=0.0, hawkish_hits=0, dovish_hits=0)
+    assert disagrees(0.9, abstained) is False
+
+
+@pytest.mark.unit
+def test_disagrees_on_opposite_sign() -> None:
+    dovish = LexiconScore(score=-0.8, hawkish_hits=0, dovish_hits=2)
+    assert disagrees(0.7, dovish) is True
+
+
+@pytest.mark.unit
+def test_disagrees_on_large_magnitude_gap_same_sign() -> None:
+    weakly_hawkish = LexiconScore(score=0.1, hawkish_hits=1, dovish_hits=0)
+    assert disagrees(0.9, weakly_hawkish) is True  # gap 0.8 >= 0.5 threshold
+
+
+@pytest.mark.unit
+def test_does_not_disagree_when_scores_are_close_and_aligned() -> None:
+    hawkish = LexiconScore(score=0.8, hawkish_hits=2, dovish_hits=0)
+    assert disagrees(0.7, hawkish) is False

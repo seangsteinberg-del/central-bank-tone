@@ -6,6 +6,7 @@
   <div class="speech-head">
     <span class="speech-title">{{ speech.title }}</span>
     <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
+    {% if speech.needs_review %}<span class="review-badge" title="The model and the lexicon disagreed on this speech">model/lexicon disagree</span>{% endif %}
   </div>
   <p class="speech-meta">model {{ "%+.2f" | format(speech.score) }} &middot; lexicon {{ "%+.2f" | format(speech.lexicon_score) }}</p>
   <p class="speech-summary">{{ speech.summary }}</p>

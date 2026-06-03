@@ -120,6 +120,11 @@ _NEGATORS: frozenset[str] = frozenset(
 _WORD_RE = re.compile(r"[a-z']+")
 
 
+# A model-vs-lexicon gap at least this large (or any opposite-sign disagreement) flags a speech
+# for review. ADR 0008: a large disagreement is surfaced, not silently averaged away.
+DISAGREEMENT_THRESHOLD = 0.5
+
+
 @dataclass(frozen=True)
 class LexiconScore:
     """A deterministic net-hawkishness score and the term hit counts behind it.
@@ -134,6 +139,34 @@ class LexiconScore:
     score: float
     hawkish_hits: int
     dovish_hits: int
+
+    @property
+    def fired(self) -> bool:
+        """Whether any lexicon term matched (so the score carries signal, not abstention)."""
+        return self.hawkish_hits + self.dovish_hits > 0
+
+
+def disagrees(
+    model_score: float, lexicon: LexiconScore, *, threshold: float = DISAGREEMENT_THRESHOLD
+) -> bool:
+    """Whether a model tone score and the lexicon score diverge enough to flag for review.
+
+    Returns ``False`` when the lexicon abstained (no signal terms), since an abstention cannot
+    disagree. Otherwise flags an opposite-sign disagreement or a magnitude gap of at least
+    ``threshold`` (ADR 0008: a large disagreement is a signal to review).
+
+    Args:
+        model_score: The model's tone score in ``[-1.0, 1.0]``.
+        lexicon: The lexicon's score for the same text.
+        threshold: The minimum absolute gap that counts as a disagreement.
+
+    Returns:
+        True if the two scores diverge enough to warrant review.
+    """
+    if not lexicon.fired:
+        return False
+    opposite_sign = model_score * lexicon.score < 0
+    return opposite_sign or abs(model_score - lexicon.score) >= threshold
 
 
 def _is_negated(text: str, match_start: int) -> bool:
