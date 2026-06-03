@@ -14,6 +14,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 cbt-core = { workspace = true }
 cbt-api = { workspace = true }
+cbt-worker = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -28,12 +29,13 @@ dev = [
   "pre-commit>=4.0",
   "cbt-core",
   "cbt-api",
+  "cbt-worker",
 ]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["packages/cbt_core/src", "packages/cbt_api/src"]
+src = ["packages/cbt_core/src", "packages/cbt_api/src", "packages/cbt_worker/src"]
 extend-exclude = [".claude"]
 
 [tool.ruff.lint]
@@ -69,14 +71,14 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["cbt_core", "cbt_api"]
+known-first-party = ["cbt_core", "cbt_api", "cbt_worker"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-mypy_path = ["packages/cbt_core/src", "packages/cbt_api/src"]
-files = ["packages/cbt_core/src", "packages/cbt_api/src"]
+mypy_path = ["packages/cbt_core/src", "packages/cbt_api/src", "packages/cbt_worker/src"]
+files = ["packages/cbt_core/src", "packages/cbt_api/src", "packages/cbt_worker/src"]
 # Alembic migration scripts are generated, operational DDL (not typed library API). They are
 # excluded from coverage and relaxed in ruff; exclude them here for the same reason.
 exclude = ["/persistence/migrations/"]
@@ -90,7 +92,7 @@ enable_error_code = [
 
 # Third-party libs without type stubs: list them here rather than scattering ignores.
 [[tool.mypy.overrides]]
-module = ["testcontainers.*", "pgvector.*"]
+module = ["testcontainers.*", "pgvector.*", "selectolax.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -110,10 +112,11 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["packages/cbt_core/src", "packages/cbt_api/src"]
+source = ["packages/cbt_core/src", "packages/cbt_api/src", "packages/cbt_worker/src"]
 # Alembic migration scripts are generated DDL exercised only by the round-trip integration
-# test (Docker-gated); they are not unit-testable library code.
-omit = ["*/persistence/migrations/*"]
+# test (Docker-gated); they are not unit-testable library code. The worker entry point is the
+# composition root (network + Gemini wiring), exercised only in production.
+omit = ["*/persistence/migrations/*", "*/cbt_worker/app.py"]
 
 [tool.coverage.report]
 show_missing = true

@@ -43,6 +43,10 @@ All notable changes to this project are documented in this file. The format foll
   `speech_chunk` table (migration 0003, HNSW cosine index), `IndexingService`, and `QaService`,
   which answers grounded in retrieved chunks with citations and abstains when nothing relevant is
   found.
+- Ingestion worker (`cbt_worker`, ADR 0010): a `SpeechSource` protocol and a `BisSpeechSource`
+  that scrapes the BIS speeches index (one source covering all eight institutions, `httpx` +
+  `selectolax`), and a `run_ingestion` runner that resolves the speaker, ingests, and indexes
+  each speech. `SpeakerService.ensure_speaker` finds or creates a speaker by name and institution.
 
 ### Changed
 - Replaced the interim `AnalysisService` (raw-text analysis) with `IngestionService`, which

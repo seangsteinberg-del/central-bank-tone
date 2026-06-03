@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cbt_core.domain.models import Speaker, ToneObservation
 from cbt_core.domain.qa import RetrievedChunk
+from cbt_core.domain.registry import CentralBank
 from cbt_core.domain.speech import Speech
 from cbt_core.exceptions import EntityNotFoundError
 from cbt_core.persistence.mappers import (
@@ -61,6 +62,15 @@ class SpeakerRepository:
     def exists(self, speaker_id: UUID) -> bool:
         """Return whether a speaker with ``speaker_id`` exists."""
         return self._session.get(SpeakerRow, speaker_id) is not None
+
+    def find_by_name_and_central_bank(self, name: str, central_bank: CentralBank) -> Speaker | None:
+        """Return the speaker with this name at this institution, or ``None``."""
+        row = self._session.scalars(
+            select(SpeakerRow).where(
+                SpeakerRow.name == name, SpeakerRow.central_bank == central_bank
+            )
+        ).first()
+        return row_to_speaker(row) if row is not None else None
 
     def list_all(self) -> list[Speaker]:
         """Return every speaker, ordered by name."""

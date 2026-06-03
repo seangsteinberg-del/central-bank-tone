@@ -80,6 +80,42 @@ class SpeakerService:
         log.info("speaker_registered", speaker_id=str(speaker.id), central_bank=central_bank.value)
         return speaker
 
+    def ensure_speaker(
+        self,
+        *,
+        name: str,
+        central_bank: CentralBank,
+        role: str,
+        actor: str = "system",
+        correlation_id: UUID | None = None,
+    ) -> Speaker:
+        """Return the existing speaker with this name and institution, or register a new one.
+
+        Used by the ingestion worker so scraping the same speaker repeatedly does not create
+        duplicates.
+
+        Args:
+            name: The speaker's full name.
+            central_bank: The institution the speaker belongs to.
+            role: The speaker's role (used only when creating).
+            actor: Who is performing the action.
+            correlation_id: Correlation id for this call; one is minted if not supplied.
+
+        Returns:
+            The existing or newly registered :class:`Speaker`.
+
+        Raises:
+            InvalidInputError: If a new speaker's fields fail domain validation.
+        """
+        correlation = correlation_id if correlation_id is not None else uuid4()
+        with self._session_factory() as session:
+            existing = SpeakerRepository(session).find_by_name_and_central_bank(name, central_bank)
+        if existing is not None:
+            return existing
+        return self.register_speaker(
+            name=name, central_bank=central_bank, role=role, actor=actor, correlation_id=correlation
+        )
+
     def get_speaker(
         self, speaker_id: UUID, *, actor: str = "system", correlation_id: UUID | None = None
     ) -> Speaker:
