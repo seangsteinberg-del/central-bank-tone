@@ -23,6 +23,9 @@ All notable changes to this project are documented in this file. The format foll
   TestClient) and Docker-gated Postgres integration tests (migration round trip, append-only
   trigger, foreign-key semantics). Coverage gate at 90 percent.
 
+- ADR 0006: decision to use Google Gemini for all LLM work, scrape speeches automatically via a
+  future `cbt_worker` adapter, and use no paid third-party APIs.
+
 ### Changed
 
 ### Fixed

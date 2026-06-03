@@ -13,8 +13,11 @@ against the schema spine (the registry of central banks and tone labels the syst
 persist the speaker and an append-only tone observation, expose a service API, and answer
 questions against the stored corpus. The moving parts: `cbt_core` (domain models, the schema
 spine, services, and persistence) and adapters such as `cbt_api` (a FastAPI surface) that
-depend on the core and never the reverse. A later worker ingests speeches and an LLM
-question-answering path (gated behind the `llm` test marker) answers queries.
+depend on the core and never the reverse. A `cbt_worker` adapter scrapes central bank speeches
+automatically, and all generative work (summarization, tone scoring, the per-speaker question
+answering) goes through the Google Gemini API behind a `cbt_core` service boundary. No paid
+third-party API is used; live model calls are gated behind the `llm` test marker and never run
+in CI (see ADR 0006).
 
 ## 2. Architecture invariants
 
