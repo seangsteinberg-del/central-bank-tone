@@ -25,6 +25,10 @@ class _StubRetriever:
         self.searches += 1
         return self._chunks[:top_k]
 
+    def search_all(self, query_embedding: Embedding, top_k: int) -> list[RetrievedChunk]:
+        self.searches += 1
+        return self._chunks[:top_k]
+
 
 def _chunk(index: int) -> RetrievedChunk:
     return RetrievedChunk(
@@ -80,3 +84,26 @@ def test_answer_for_unknown_speaker_raises_not_found(
     service = QaService(stub_llm_client, _StubRetriever([_chunk(0)]), speaker_service)
     with pytest.raises(EntityNotFoundError):
         service.answer(speaker_id=UUID(int=404), question="anything?")
+
+
+@pytest.mark.unit
+def test_answer_corpus_grounds_in_chunks_from_any_speaker(
+    speaker_service: SpeakerService, stub_llm_client: StubLlmClient
+) -> None:
+    retriever = _StubRetriever([_chunk(0), _chunk(1)])
+    service = QaService(stub_llm_client, retriever, speaker_service)
+    answer = service.answer_corpus(question="Who is most hawkish?")
+    assert answer.abstained is False
+    assert len(answer.citations) == 2
+    assert stub_llm_client.answers == 1
+
+
+@pytest.mark.unit
+def test_answer_corpus_abstains_when_corpus_has_no_match(
+    speaker_service: SpeakerService, stub_llm_client: StubLlmClient
+) -> None:
+    service = QaService(stub_llm_client, _StubRetriever([]), speaker_service)
+    answer = service.answer_corpus(question="anything?")
+    assert answer.abstained is True
+    assert answer.citations == ()
+    assert stub_llm_client.answers == 0

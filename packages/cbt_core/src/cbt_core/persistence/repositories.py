@@ -213,6 +213,27 @@ class SpeechChunkRepository:
         Returns:
             The closest chunks, nearest first, each carrying its speech's citation metadata.
         """
+        return self._search(query_embedding, top_k, speaker_id=speaker_id)
+
+    def search_all(self, query_embedding: list[float], top_k: int) -> list[RetrievedChunk]:
+        """Return the ``top_k`` chunks closest to ``query_embedding`` across every speaker.
+
+        The corpus-wide variant of :meth:`search`, used to answer platform-level questions that
+        are not scoped to one speaker.
+
+        Args:
+            query_embedding: The query vector.
+            top_k: The maximum number of chunks to return.
+
+        Returns:
+            The closest chunks, nearest first, each carrying its speech's citation metadata.
+        """
+        return self._search(query_embedding, top_k, speaker_id=None)
+
+    def _search(
+        self, query_embedding: list[float], top_k: int, *, speaker_id: UUID | None
+    ) -> list[RetrievedChunk]:
+        """Run the nearest-neighbour query, optionally restricted to one speaker."""
         distance = SpeechChunkRow.embedding.cosine_distance(query_embedding)
         statement = (
             select(
@@ -224,10 +245,11 @@ class SpeechChunkRepository:
                 distance.label("distance"),
             )
             .join(SpeechRow, SpeechChunkRow.speech_id == SpeechRow.id)
-            .where(SpeechRow.speaker_id == speaker_id)
             .order_by(distance)
             .limit(top_k)
         )
+        if speaker_id is not None:
+            statement = statement.where(SpeechRow.speaker_id == speaker_id)
         rows = self._session.execute(statement).all()
         return [
             RetrievedChunk(
@@ -259,3 +281,11 @@ class SpeechRetriever:
         """Retrieve the closest chunks for a speaker (see :meth:`SpeechChunkRepository.search`)."""
         with self._session_factory() as session:
             return SpeechChunkRepository(session).search(speaker_id, query_embedding, top_k)
+
+    def search_all(self, query_embedding: list[float], top_k: int) -> list[RetrievedChunk]:
+        """Retrieve the closest chunks across all speakers (corpus-wide).
+
+        See :meth:`SpeechChunkRepository.search_all`.
+        """
+        with self._session_factory() as session:
+            return SpeechChunkRepository(session).search_all(query_embedding, top_k)

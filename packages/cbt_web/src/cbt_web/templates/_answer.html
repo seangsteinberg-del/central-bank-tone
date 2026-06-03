@@ -1,0 +1,19 @@
+{% if error %}
+<p class="answer-error">{{ error }}</p>
+{% elif answer %}
+<div class="answer {% if answer.abstained %}abstained{% endif %}">
+  <p class="answer-text">{{ answer.text }}</p>
+  {% if answer.citations %}
+  <details class="citations" open>
+    <summary>{{ answer.citations | length }} citation{{ "" if answer.citations | length == 1 else "s" }}</summary>
+    <ul>
+      {% for citation in answer.citations %}
+      <li><a href="{{ citation.url }}" target="_blank" rel="noreferrer noopener">{{ citation.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% elif answer.abstained %}
+  <p class="muted">No grounded source was found, so no answer was generated.</p>
+  {% endif %}
+</div>
+{% endif %}

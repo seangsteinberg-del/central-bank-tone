@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Add data - Central Bank Tone{% endblock %}
+{% block content %}
+<a class="back" href="/">&larr; All speakers</a>
+<h1>Add data</h1>
+<p class="muted">
+  Register a speaker, then ingest a speech for them. Each speech is summarized, tone-scored
+  (model plus a deterministic lexicon cross-check), and indexed for retrieval. The worker can
+  also populate this automatically from the BIS speeches index.
+</p>
+
+<section class="form-section">
+  <h2>Register a speaker</h2>
+  <form class="stacked-form" hx-post="/ui/speakers" hx-target="#speaker-created" hx-disabled-elt="find button">
+    <label>Name
+      <input type="text" name="name" maxlength="200" required>
+    </label>
+    <label>Central bank
+      <select name="central_bank" required>
+        {% for bank in central_banks %}
+        <option value="{{ bank.value }}">{{ bank.value | replace("_", " ") | title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Role
+      <input type="text" name="role" maxlength="200" placeholder="e.g. Governor" required>
+    </label>
+    <button type="submit">Register</button>
+  </form>
+  <div id="speaker-created" class="answer-slot" aria-live="polite"></div>
+</section>
+
+<section class="form-section">
+  <h2>Ingest a speech</h2>
+  {% if speakers %}
+  <form class="stacked-form" hx-post="/ui/ingest" hx-target="#ingest-result" hx-disabled-elt="find button">
+    <label>Speaker
+      <select name="speaker_id" required>
+        {% for speaker in speakers %}
+        <option value="{{ speaker.id }}">{{ speaker.name }} ({{ speaker.central_bank.value | replace("_", " ") | title }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Title
+      <input type="text" name="title" maxlength="500" required>
+    </label>
+    <label>Source URL
+      <input type="url" name="url" maxlength="2000" required>
+    </label>
+    <label>Delivered on
+      <input type="date" name="delivered_on" required>
+    </label>
+    <label>Language
+      <input type="text" name="language" value="en" maxlength="12">
+    </label>
+    <label>Speech text
+      <textarea name="text" rows="12" required></textarea>
+    </label>
+    <button type="submit">Ingest and analyze</button>
+  </form>
+  <div id="ingest-result" class="answer-slot" aria-live="polite"></div>
+  {% else %}
+  <p class="muted">Register a speaker first; the speech form needs someone to attribute the speech to.</p>
+  {% endif %}
+</section>
+{% endblock %}

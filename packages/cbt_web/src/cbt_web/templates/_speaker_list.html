@@ -1,0 +1,14 @@
+{% if speakers %}
+<ul class="speaker-list">
+  {% for speaker in speakers %}
+  <li class="speaker-card">
+    <a href="/speakers/{{ speaker.id }}">
+      <span class="speaker-name">{{ speaker.name }}</span>
+      <span class="speaker-meta">{{ speaker.central_bank.value | replace("_", " ") | title }} &middot; {{ speaker.role }}</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted empty">No speakers{% if query %} match &ldquo;{{ query }}&rdquo;{% endif %} yet. Add one on the <a href="/admin">Add data</a> page.</p>
+{% endif %}

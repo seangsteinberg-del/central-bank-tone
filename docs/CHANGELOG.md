@@ -50,6 +50,14 @@ All notable changes to this project are documented in this file. The format foll
 - API endpoints (`cbt_api`): `POST/GET /speakers/{id}/speeches` to ingest+index and list a
   speaker's analyzed speeches, and `POST /speakers/{id}/ask` to answer a question about a speaker
   with citations. `IngestionService.list_speeches` reads a speaker's speeches.
+- Corpus-wide question answering: `QaService.answer_corpus`, backed by
+  `SpeechChunkRepository.search_all` / `SpeechRetriever.search_all` (nearest-neighbour retrieval
+  across every speaker), so the whole platform is natural-language queryable, not just one speaker.
+- Web UI (`cbt_web`, ADR 0011): a server-rendered (Jinja + htmx) FastAPI adapter with a speaker
+  directory and live search, a corpus-wide ask box, a speaker page with a tone-over-time chart and
+  analyzed speeches, a per-speaker ask box, and an admin page to register a speaker and ingest a
+  speech. htmx 2.0.4 (BSD-2) is vendored as a static asset; the pages degrade gracefully without
+  JavaScript. `SpeakerForm`/`AskForm`/`IngestForm` validate every submission at the boundary.
 
 ### Changed
 - Replaced the interim `AnalysisService` (raw-text analysis) with `IngestionService`, which

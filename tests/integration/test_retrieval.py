@@ -70,7 +70,9 @@ def test_vector_search_returns_the_speakers_chunks(fresh_postgres_url: str) -> N
         assert chunk_count > 1
 
         query_embedding = stub.embed(["what is the outlook?"])[0]
-        chunks = SpeechRetriever(factory).search(speaker.id, query_embedding, top_k=3)
+        retriever = SpeechRetriever(factory)
+        chunks = retriever.search(speaker.id, query_embedding, top_k=3)
+        corpus_chunks = retriever.search_all(query_embedding, top_k=3)
     finally:
         engine.dispose()
 
@@ -78,3 +80,6 @@ def test_vector_search_returns_the_speakers_chunks(fresh_postgres_url: str) -> N
     assert all(chunk.speech_id == speech.id for chunk in chunks)
     # Distances are ordered nearest-first.
     assert chunks == sorted(chunks, key=lambda chunk: chunk.distance)
+    # The corpus-wide search finds the same chunks when there is only one speaker.
+    assert {chunk.speech_id for chunk in corpus_chunks} == {speech.id}
+    assert corpus_chunks == sorted(corpus_chunks, key=lambda chunk: chunk.distance)

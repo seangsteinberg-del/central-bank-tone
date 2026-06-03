@@ -1,0 +1,14 @@
+{% if error %}
+<p class="answer-error">{{ error }}</p>
+{% elif speech %}
+<div class="ingest-result">
+  <p class="ok">Ingested and indexed.</p>
+  <div class="speech-head">
+    <span class="speech-title">{{ speech.title }}</span>
+    <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
+  </div>
+  <p class="speech-meta">model {{ "%+.2f" | format(speech.score) }} &middot; lexicon {{ "%+.2f" | format(speech.lexicon_score) }}</p>
+  <p class="speech-summary">{{ speech.summary }}</p>
+  <p><a href="/speakers/{{ speech.speaker_id }}">View speaker &rarr;</a></p>
+</div>
+{% endif %}

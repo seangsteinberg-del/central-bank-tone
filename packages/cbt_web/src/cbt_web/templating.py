@@ -1,0 +1,61 @@
+"""Jinja2 template configuration and presentation helpers for the web UI.
+
+Presentation-only logic (mapping a tone to a colour class, a score to an axis position, a
+datetime to a date string) lives here as Jinja filters so templates stay declarative and the
+mapping is defined once. The templates and static assets are loaded from this package by
+filesystem path, so they work from a source checkout without a build step.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+from fastapi.templating import Jinja2Templates
+
+from cbt_core import ToneLabel
+
+PACKAGE_DIR = Path(__file__).resolve().parent
+TEMPLATES_DIR = PACKAGE_DIR / "templates"
+STATIC_DIR = PACKAGE_DIR / "static"
+
+# Tone -> CSS modifier class, for colouring tone badges and timeline points consistently.
+_TONE_CLASS = {
+    ToneLabel.HAWKISH: "hawkish",
+    ToneLabel.DOVISH: "dovish",
+    ToneLabel.NEUTRAL: "neutral",
+    ToneLabel.MIXED: "mixed",
+}
+
+
+def _tone_class(tone: ToneLabel) -> str:
+    """Return the CSS modifier class for a tone label."""
+    return _TONE_CLASS[tone]
+
+
+def _tone_label(tone: ToneLabel) -> str:
+    """Return a human-readable label for a tone (for example ``Hawkish``)."""
+    return tone.value.replace("_", " ").title()
+
+
+def _format_date(value: datetime) -> str:
+    """Format a datetime as an ISO date (``YYYY-MM-DD``)."""
+    return value.date().isoformat()
+
+
+def build_templates() -> Jinja2Templates:
+    """Build the Jinja2 templates object with the UI's presentation filters registered.
+
+    Returns:
+        A configured :class:`~fastapi.templating.Jinja2Templates` instance.
+    """
+    instance = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    instance.env.filters["tone_class"] = _tone_class
+    instance.env.filters["tone_label"] = _tone_label
+    instance.env.filters["format_date"] = _format_date
+    return instance
+
+
+# A single templates instance shared by the views and the error handlers. Constructing it only
+# builds a filesystem loader (no IO, no configuration), so a module-level instance is safe.
+templates = build_templates()

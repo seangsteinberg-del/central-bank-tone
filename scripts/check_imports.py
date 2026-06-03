@@ -17,7 +17,7 @@ from pathlib import Path
 
 # --- edit these for your project -------------------------------------------------
 CORE_PACKAGE = "cbt_core"
-ADAPTER_PACKAGES = ("cbt_api", "cbt_worker")  # add every adapter package here
+ADAPTER_PACKAGES = ("cbt_api", "cbt_worker", "cbt_web")  # add every adapter package here
 # ---------------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

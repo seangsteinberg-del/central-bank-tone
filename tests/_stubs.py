@@ -45,3 +45,6 @@ class StubChunkRetriever:
         self, speaker_id: object, query_embedding: object, top_k: int
     ) -> list[RetrievedChunk]:
         return self._chunks[:top_k]
+
+    def search_all(self, query_embedding: object, top_k: int) -> list[RetrievedChunk]:
+        return self._chunks[:top_k]

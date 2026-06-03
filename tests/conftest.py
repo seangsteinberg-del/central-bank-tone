@@ -194,3 +194,31 @@ def client(services: Services) -> Iterator[TestClient]:
     app.state.services = services
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def web_client(
+    dummy_settings: Settings,
+    sqlite_engine: Engine,
+    speaker_service: SpeakerService,
+    tone_service: ToneService,
+    ingestion_service: IngestionService,
+    indexing_service: IndexingService,
+    qa_service: QaService,
+) -> Iterator[TestClient]:
+    """A TestClient for the web UI app, backed by the same SQLite-backed services."""
+    from cbt_web.app import create_app
+    from cbt_web.dependencies import Services as WebServices
+
+    app = create_app(dummy_settings)
+    app.state.services = WebServices(
+        settings=dummy_settings,
+        engine=sqlite_engine,
+        speaker_service=speaker_service,
+        tone_service=tone_service,
+        ingestion_service=ingestion_service,
+        indexing_service=indexing_service,
+        qa_service=qa_service,
+    )
+    with TestClient(app) as test_client:
+        yield test_client

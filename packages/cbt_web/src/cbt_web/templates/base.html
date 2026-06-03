@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Central Bank Tone{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/">Central Bank Tone</a>
+    <nav class="site-nav">
+      <a href="/">Speakers</a>
+      <a href="/admin">Add data</a>
+    </nav>
+  </header>
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer">
+    Tone is model-generated and cross-checked against a deterministic lexicon. Answers are
+    grounded in retrieved speech excerpts and abstain when no source is found.
+  </footer>
+</body>
+</html>

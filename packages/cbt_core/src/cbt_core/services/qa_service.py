@@ -18,15 +18,22 @@ from cbt_core.services.speaker_service import SpeakerService
 _logger = get_logger(__name__)
 
 _ABSTENTION = "I could not find anything in this speaker's speeches that addresses that question."
+_CORPUS_ABSTENTION = (
+    "I could not find anything in the speeches I have analyzed that addresses that question."
+)
 
 
 class ChunkRetriever(Protocol):
-    """Retrieves the chunks most relevant to a query embedding for a speaker."""
+    """Retrieves the chunks most relevant to a query embedding, per speaker or corpus-wide."""
 
     def search(
         self, speaker_id: UUID, query_embedding: Embedding, top_k: int
     ) -> list[RetrievedChunk]:
         """Return up to ``top_k`` chunks nearest to ``query_embedding`` for the speaker."""
+        ...
+
+    def search_all(self, query_embedding: Embedding, top_k: int) -> list[RetrievedChunk]:
+        """Return up to ``top_k`` chunks nearest to ``query_embedding`` across all speakers."""
         ...
 
 
@@ -91,4 +98,39 @@ class QaService:
         text = self._llm.answer(question, chunks)
         citations = tuple(Citation.from_chunk(chunk) for chunk in chunks)
         log.info("qa_answered", chunk_count=len(chunks))
+        return Answer(text=text, citations=citations, abstained=False)
+
+    def answer_corpus(
+        self, *, question: str, actor: str = "system", correlation_id: UUID | None = None
+    ) -> Answer:
+        """Answer a question across every speaker's speeches (platform-wide).
+
+        The corpus-wide counterpart to :meth:`answer`: it retrieves the most relevant chunks
+        from the whole analyzed corpus rather than a single speaker, so the platform itself is
+        natural-language queryable. It abstains the same way when retrieval finds nothing.
+
+        Args:
+            question: The natural-language question.
+            actor: Who is performing the action.
+            correlation_id: Correlation id for this call; one is minted if not supplied.
+
+        Returns:
+            An :class:`Answer`. When no relevant chunk is found it abstains, with ``abstained``
+            set and no citations.
+
+        Raises:
+            LlmError: If embedding or answering fails.
+        """
+        correlation = correlation_id if correlation_id is not None else uuid4()
+        log = _logger.bind(correlation_id=str(correlation), actor=actor)
+
+        query_embedding = self._llm.embed([question])[0]
+        chunks = self._retriever.search_all(query_embedding, self._top_k)
+        if not chunks:
+            log.info("qa_corpus_abstained")
+            return Answer(text=_CORPUS_ABSTENTION, citations=(), abstained=True)
+
+        text = self._llm.answer(question, chunks)
+        citations = tuple(Citation.from_chunk(chunk) for chunk in chunks)
+        log.info("qa_corpus_answered", chunk_count=len(chunks))
         return Answer(text=text, citations=citations, abstained=False)

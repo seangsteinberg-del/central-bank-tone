@@ -1,0 +1,8 @@
+{% if error %}
+<p class="answer-error">{{ error }}</p>
+{% elif speaker %}
+<p class="ok">
+  Registered <a href="/speakers/{{ speaker.id }}">{{ speaker.name }}</a>. Reload this page to
+  select them in the speech form below.
+</p>
+{% endif %}

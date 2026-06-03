@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ speaker.name }} - Central Bank Tone{% endblock %}
+{% block content %}
+<a class="back" href="/">&larr; All speakers</a>
+
+<header class="speaker-header">
+  <div>
+    <h1>{{ speaker.name }}</h1>
+    <p class="speaker-meta">{{ speaker.central_bank.value | replace("_", " ") | title }} &middot; {{ speaker.role }}</p>
+  </div>
+  {% if latest_tone %}
+  <span class="tone-badge {{ latest_tone | tone_class }}">{{ latest_tone | tone_label }}</span>
+  {% endif %}
+</header>
+
+<section class="ask-panel">
+  <h2>Ask about {{ speaker.name }}</h2>
+  <form class="ask-form" hx-post="/ui/speakers/{{ speaker.id }}/ask" hx-target="#speaker-answer" hx-disabled-elt="find button">
+    <input type="text" name="question" maxlength="1000" required
+           placeholder="e.g. How has the tone shifted on rate cuts?"
+           aria-label="Ask a question about this speaker">
+    <button type="submit">Ask</button>
+  </form>
+  <div id="speaker-answer" class="answer-slot" aria-live="polite"></div>
+</section>
+
+<section class="timeline-section">
+  <h2>Tone over time</h2>
+  {% if timeline %}
+  <div class="timeline">
+    <div class="timeline-axis">
+      <span class="axis-label dovish">Dovish</span>
+      <span class="axis-mid">Neutral</span>
+      <span class="axis-label hawkish">Hawkish</span>
+    </div>
+    {% for point in timeline %}
+    <div class="timeline-row">
+      <span class="timeline-date">{{ point.observed_at | format_date }}</span>
+      <span class="bar-track">
+        <span class="bar-zero"></span>
+        <span class="bar {{ point.tone | tone_class }}" style="left: {{ point.left }}%; width: {{ point.width }}%;"></span>
+      </span>
+      <span class="bar-score">{{ "%+.2f" | format(point.score) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No tone observations yet. <a href="/admin">Add a speech</a> to populate the timeline.</p>
+  {% endif %}
+</section>
+
+<section class="speeches-section">
+  <h2>Analyzed speeches</h2>
+  {% if speeches %}
+  <ul class="speech-list">
+    {% for speech in speeches %}
+    <li class="speech-card">
+      <div class="speech-head">
+        <a class="speech-title" href="{{ speech.url }}" target="_blank" rel="noreferrer noopener">{{ speech.title }}</a>
+        <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
+      </div>
+      <p class="speech-meta">{{ speech.delivered_at | format_date }} &middot; model {{ "%+.2f" | format(speech.score) }} &middot; lexicon {{ "%+.2f" | format(speech.lexicon_score) }}</p>
+      <p class="speech-summary">{{ speech.summary }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No speeches ingested yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

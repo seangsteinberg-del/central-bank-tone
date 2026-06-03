@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="ask-panel">
+  <h1>Ask the corpus</h1>
+  <p class="muted">A natural-language question across every speaker we have analyzed.</p>
+  <form class="ask-form" hx-post="/ui/ask" hx-target="#corpus-answer" hx-disabled-elt="find button">
+    <input type="text" name="question" maxlength="1000" required
+           placeholder="e.g. Which speakers sound most hawkish about inflation?"
+           aria-label="Ask a question about the whole corpus">
+    <button type="submit">Ask</button>
+  </form>
+  <div id="corpus-answer" class="answer-slot" aria-live="polite"></div>
+</section>
+
+<section class="directory">
+  <h2>Speakers</h2>
+  <input class="search" type="search" name="q"
+         placeholder="Search by name or central bank"
+         hx-get="/ui/speakers" hx-target="#speaker-list"
+         hx-trigger="input changed delay:250ms, search"
+         aria-label="Search speakers">
+  <div id="speaker-list">
+    {% include "_speaker_list.html" %}
+  </div>
+</section>
+{% endblock %}
