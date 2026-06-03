@@ -33,3 +33,15 @@ class StubLlmClient:
     def answer(self, question: str, chunks: Sequence[RetrievedChunk]) -> str:
         self.answers += 1
         return f"Based on {len(chunks)} excerpt(s): a grounded answer to {question!r}."
+
+
+class StubChunkRetriever:
+    """A retriever that returns fixed chunks, for testing the Q&A path without pgvector."""
+
+    def __init__(self, chunks: list[RetrievedChunk]) -> None:
+        self._chunks = chunks
+
+    def search(
+        self, speaker_id: object, query_embedding: object, top_k: int
+    ) -> list[RetrievedChunk]:
+        return self._chunks[:top_k]

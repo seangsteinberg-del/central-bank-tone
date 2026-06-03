@@ -107,6 +107,80 @@ def test_observations_for_unknown_speaker_returns_404(client: TestClient) -> Non
     assert client.get(f"/speakers/{_UNKNOWN}/tone-observations").status_code == 404
 
 
+def _ingest(client: TestClient, speaker_id: str, *, text: str = "we will hold rates") -> dict:
+    response = client.post(
+        f"/speakers/{speaker_id}/speeches",
+        json={
+            "title": "On the outlook",
+            "url": "https://example.org/speech/1",
+            "delivered_at": "2026-01-15T00:00:00Z",
+            "text": text,
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+@pytest.mark.web
+def test_ingest_then_list_speeches(client: TestClient) -> None:
+    speaker_id = _create_speaker(client)
+    body = _ingest(client, speaker_id)
+    assert body["tone"] == "hawkish"  # the stub LLM client's fixed analysis
+    assert body["summary"]
+    assert "lexicon_score" in body
+
+    listed = client.get(f"/speakers/{speaker_id}/speeches")
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+
+
+@pytest.mark.web
+def test_ingest_speech_rejects_naive_datetime_with_422(client: TestClient) -> None:
+    speaker_id = _create_speaker(client)
+    response = client.post(
+        f"/speakers/{speaker_id}/speeches",
+        json={
+            "title": "x",
+            "url": "https://example.org/s/1",
+            "delivered_at": "2026-01-15T00:00:00",  # no timezone
+            "text": "text",
+        },
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.web
+def test_ingest_speech_for_unknown_speaker_returns_404(client: TestClient) -> None:
+    response = client.post(
+        f"/speakers/{_UNKNOWN}/speeches",
+        json={
+            "title": "x",
+            "url": "https://example.org/s/1",
+            "delivered_at": "2026-01-15T00:00:00Z",
+            "text": "text",
+        },
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.web
+def test_ask_returns_a_grounded_answer_with_citations(client: TestClient) -> None:
+    speaker_id = _create_speaker(client)
+    response = client.post(f"/speakers/{speaker_id}/ask", json={"question": "Is the tone hawkish?"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["abstained"] is False
+    assert body["text"]
+    assert len(body["citations"]) == 1
+    assert body["citations"][0]["url"] == "https://example.org/s/900"
+
+
+@pytest.mark.web
+def test_ask_for_unknown_speaker_returns_404(client: TestClient) -> None:
+    response = client.post(f"/speakers/{_UNKNOWN}/ask", json={"question": "anything?"})
+    assert response.status_code == 404
+
+
 @pytest.mark.web
 def test_correlation_id_is_echoed_or_minted(client: TestClient) -> None:
     minted = client.get("/health")

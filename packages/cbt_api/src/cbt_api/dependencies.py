@@ -15,9 +15,14 @@ from fastapi import Depends, Request
 from sqlalchemy import Engine
 
 from cbt_core import (
+    IndexingService,
+    IngestionService,
+    QaService,
     Settings,
     SpeakerService,
+    SpeechRetriever,
     ToneService,
+    build_gemini_client,
     create_engine_from_settings,
     make_session_factory,
 )
@@ -31,6 +36,9 @@ class Services:
     engine: Engine
     speaker_service: SpeakerService
     tone_service: ToneService
+    ingestion_service: IngestionService
+    indexing_service: IndexingService
+    qa_service: QaService
 
 
 def build_services(settings: Settings) -> Services:
@@ -44,11 +52,16 @@ def build_services(settings: Settings) -> Services:
     """
     engine = create_engine_from_settings(settings)
     session_factory = make_session_factory(engine)
+    llm = build_gemini_client(settings)
+    speaker_service = SpeakerService(session_factory)
     return Services(
         settings=settings,
         engine=engine,
-        speaker_service=SpeakerService(session_factory),
+        speaker_service=speaker_service,
         tone_service=ToneService(session_factory),
+        ingestion_service=IngestionService(session_factory, llm),
+        indexing_service=IndexingService(session_factory, llm),
+        qa_service=QaService(llm, SpeechRetriever(session_factory), speaker_service),
     )
 
 
@@ -70,6 +83,21 @@ def get_tone_service(services: ServicesDep) -> ToneService:
     return services.tone_service
 
 
+def get_ingestion_service(services: ServicesDep) -> IngestionService:
+    """Return the ingestion (speech) service."""
+    return services.ingestion_service
+
+
+def get_indexing_service(services: ServicesDep) -> IndexingService:
+    """Return the indexing service."""
+    return services.indexing_service
+
+
+def get_qa_service(services: ServicesDep) -> QaService:
+    """Return the question-answering service."""
+    return services.qa_service
+
+
 def get_correlation_id(request: Request) -> UUID:
     """Return the correlation id for the current request.
 
@@ -80,4 +108,7 @@ def get_correlation_id(request: Request) -> UUID:
 
 SpeakerServiceDep = Annotated[SpeakerService, Depends(get_speaker_service)]
 ToneServiceDep = Annotated[ToneService, Depends(get_tone_service)]
+IngestionServiceDep = Annotated[IngestionService, Depends(get_ingestion_service)]
+IndexingServiceDep = Annotated[IndexingService, Depends(get_indexing_service)]
+QaServiceDep = Annotated[QaService, Depends(get_qa_service)]
 CorrelationIdDep = Annotated[UUID, Depends(get_correlation_id)]

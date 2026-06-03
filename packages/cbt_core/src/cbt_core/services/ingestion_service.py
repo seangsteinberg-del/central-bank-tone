@@ -148,3 +148,27 @@ class IngestionService:
             source_bytes=len(encoded),
         )
         return speech
+
+    def list_speeches(
+        self, speaker_id: UUID, *, actor: str = "system", correlation_id: UUID | None = None
+    ) -> list[Speech]:
+        """Return a speaker's analyzed speeches, most recent first.
+
+        Args:
+            speaker_id: The speaker whose speeches to read.
+            actor: Who is performing the action.
+            correlation_id: Correlation id for this call; one is minted if not supplied.
+
+        Returns:
+            The speaker's speeches.
+
+        Raises:
+            EntityNotFoundError: If the speaker does not exist.
+        """
+        correlation = correlation_id if correlation_id is not None else uuid4()
+        log = _logger.bind(correlation_id=str(correlation), actor=actor, speaker_id=str(speaker_id))
+        with self._session_factory() as session:
+            SpeakerRepository(session).get(speaker_id)
+            speeches = SpeechRepository(session).list_for_speaker(speaker_id)
+        log.info("speeches_listed", count=len(speeches))
+        return speeches

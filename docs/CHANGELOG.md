@@ -47,6 +47,9 @@ All notable changes to this project are documented in this file. The format foll
   that scrapes the BIS speeches index (one source covering all eight institutions, `httpx` +
   `selectolax`), and a `run_ingestion` runner that resolves the speaker, ingests, and indexes
   each speech. `SpeakerService.ensure_speaker` finds or creates a speaker by name and institution.
+- API endpoints (`cbt_api`): `POST/GET /speakers/{id}/speeches` to ingest+index and list a
+  speaker's analyzed speeches, and `POST /speakers/{id}/ask` to answer a question about a speaker
+  with citations. `IngestionService.list_speeches` reads a speaker's speeches.
 
 ### Changed
 - Replaced the interim `AnalysisService` (raw-text analysis) with `IngestionService`, which

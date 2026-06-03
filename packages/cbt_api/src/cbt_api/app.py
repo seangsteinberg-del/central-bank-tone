@@ -1,7 +1,9 @@
 """FastAPI application factory and ASGI entry point.
 
-Run with: ``uv run uvicorn cbt_api.app:app``. The factory wires the correlation-id middleware,
-the exception handlers, and the routers, and builds the service container once per process.
+Run with: ``uv run uvicorn --factory cbt_api.app:create_app``. The factory wires the
+correlation-id middleware, the exception handlers, and the routers, and builds the service
+container (including the Gemini client) once per process. It is a factory rather than a
+module-level app so that importing this module has no side effects and needs no configuration.
 """
 
 from __future__ import annotations
@@ -82,6 +84,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     return app
-
-
-app = create_app()

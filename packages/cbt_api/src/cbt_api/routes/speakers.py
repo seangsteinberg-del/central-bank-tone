@@ -11,10 +11,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
-from cbt_api.dependencies import CorrelationIdDep, SpeakerServiceDep, ToneServiceDep
+from cbt_api.dependencies import (
+    CorrelationIdDep,
+    IndexingServiceDep,
+    IngestionServiceDep,
+    QaServiceDep,
+    SpeakerServiceDep,
+    ToneServiceDep,
+)
 from cbt_api.schemas import (
+    AnswerResponse,
+    AskRequest,
     SpeakerCreate,
     SpeakerResponse,
+    SpeechIngestRequest,
+    SpeechResponse,
     ToneObservationCreate,
     ToneObservationResponse,
 )
@@ -80,3 +91,48 @@ def list_observations(
     """List a speaker's tone observations, oldest first."""
     observations = service.observations_for(speaker_id, correlation_id=correlation_id)
     return [ToneObservationResponse.from_domain(observation) for observation in observations]
+
+
+@router.post("/{speaker_id}/speeches", status_code=status.HTTP_201_CREATED)
+def ingest_speech(
+    speaker_id: UUID,
+    body: SpeechIngestRequest,
+    ingestion: IngestionServiceDep,
+    indexing: IndexingServiceDep,
+    correlation_id: CorrelationIdDep,
+) -> SpeechResponse:
+    """Ingest, analyze, and index a single speech for a speaker."""
+    speech = ingestion.ingest_speech(
+        speaker_id=speaker_id,
+        title=body.title,
+        url=body.url,
+        delivered_at=body.delivered_at,
+        text=body.text,
+        language=body.language,
+        correlation_id=correlation_id,
+    )
+    indexing.index_speech(speech.id, correlation_id=correlation_id)
+    return SpeechResponse.from_domain(speech)
+
+
+@router.get("/{speaker_id}/speeches")
+def list_speeches(
+    speaker_id: UUID, ingestion: IngestionServiceDep, correlation_id: CorrelationIdDep
+) -> list[SpeechResponse]:
+    """List a speaker's analyzed speeches, most recent first."""
+    speeches = ingestion.list_speeches(speaker_id, correlation_id=correlation_id)
+    return [SpeechResponse.from_domain(speech) for speech in speeches]
+
+
+@router.post("/{speaker_id}/ask")
+def ask(
+    speaker_id: UUID,
+    body: AskRequest,
+    service: QaServiceDep,
+    correlation_id: CorrelationIdDep,
+) -> AnswerResponse:
+    """Answer a question about a speaker, grounded in their speeches."""
+    answer = service.answer(
+        speaker_id=speaker_id, question=body.question, correlation_id=correlation_id
+    )
+    return AnswerResponse.from_domain(answer)

@@ -20,18 +20,20 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
-from tests._stubs import StubLlmClient
+from tests._stubs import StubChunkRetriever, StubLlmClient
 
 from cbt_api.dependencies import Services
 from cbt_core import (
     IndexingService,
     IngestionService,
+    QaService,
     Settings,
     SpeakerService,
     ToneAnalysis,
     ToneLabel,
     ToneService,
 )
+from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.persistence import Base
 from cbt_core.services._support import Clock, IdFactory
 from cbt_core.settings import Environment
@@ -41,11 +43,12 @@ FROZEN_TIME = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
 
 @pytest.fixture
 def dummy_settings() -> Settings:
-    """Development settings with a dummy secret and an in-process SQLite URL."""
+    """Development settings with dummy secrets and an in-process SQLite URL."""
     return Settings(
         environment=Environment.DEVELOPMENT,
         database_url="sqlite://",
         secret_key=SecretStr("test-secret-not-a-real-key"),
+        gemini_api_key=SecretStr("test-gemini-key-not-real"),
     )
 
 
@@ -147,11 +150,28 @@ def indexing_service(
 
 
 @pytest.fixture
+def qa_service(stub_llm_client: StubLlmClient, speaker_service: SpeakerService) -> QaService:
+    """A Q&A service whose retriever returns a fixed chunk (no pgvector needed)."""
+    chunk = RetrievedChunk(
+        speech_id=UUID(int=900),
+        chunk_index=0,
+        text="an excerpt",
+        title="A speech",
+        url="https://example.org/s/900",
+        distance=0.1,
+    )
+    return QaService(stub_llm_client, StubChunkRetriever([chunk]), speaker_service)
+
+
+@pytest.fixture
 def services(
     dummy_settings: Settings,
     sqlite_engine: Engine,
     speaker_service: SpeakerService,
     tone_service: ToneService,
+    ingestion_service: IngestionService,
+    indexing_service: IndexingService,
+    qa_service: QaService,
 ) -> Services:
     """A SQLite-backed service container for wiring into the API."""
     return Services(
@@ -159,6 +179,9 @@ def services(
         engine=sqlite_engine,
         speaker_service=speaker_service,
         tone_service=tone_service,
+        ingestion_service=ingestion_service,
+        indexing_service=indexing_service,
+        qa_service=qa_service,
     )
 
 
