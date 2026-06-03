@@ -20,9 +20,17 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
+from tests._stubs import StubLlmClient
 
 from cbt_api.dependencies import Services
-from cbt_core import Settings, SpeakerService, ToneService
+from cbt_core import (
+    AnalysisService,
+    Settings,
+    SpeakerService,
+    ToneAnalysis,
+    ToneLabel,
+    ToneService,
+)
 from cbt_core.persistence import Base
 from cbt_core.services._support import Clock, IdFactory
 from cbt_core.settings import Environment
@@ -96,6 +104,33 @@ def tone_service(
 ) -> ToneService:
     """A tone service with deterministic id and clock factories."""
     return ToneService(session_factory, id_factory=id_factory, clock=frozen_clock)
+
+
+@pytest.fixture
+def stub_tone_analysis() -> ToneAnalysis:
+    """A fixed tone analysis the stub LLM client returns."""
+    return ToneAnalysis(
+        summary="The speaker signalled a readiness to keep policy tight.",
+        tone=ToneLabel.HAWKISH,
+        score=0.6,
+        rationale="Repeated emphasis on persistent inflation risk.",
+    )
+
+
+@pytest.fixture
+def stub_llm_client(stub_tone_analysis: ToneAnalysis) -> StubLlmClient:
+    """A deterministic stub LLM client."""
+    return StubLlmClient(stub_tone_analysis)
+
+
+@pytest.fixture
+def analysis_service(
+    stub_llm_client: StubLlmClient,
+    speaker_service: SpeakerService,
+    tone_service: ToneService,
+) -> AnalysisService:
+    """An analysis service wired to the stub LLM client and SQLite-backed services."""
+    return AnalysisService(stub_llm_client, speaker_service, tone_service)
 
 
 @pytest.fixture

@@ -46,3 +46,11 @@ class ImmutableRecordError(CbtError):
     The database enforces append-only tables with a trigger; this error represents the same
     rule at the application layer so callers get a typed failure.
     """
+
+
+class LlmError(CbtError):
+    """The language model call failed or returned an unusable response.
+
+    Raised at the LLM boundary rather than degrading silently (CLAUDE.md section 3): a missing
+    or malformed model response surfaces as an explicit error, never a fabricated result.
+    """

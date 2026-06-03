@@ -123,4 +123,6 @@ exclude_also = [
   "raise NotImplementedError",
   "if __name__ == .__main__.:",
   "if TYPE_CHECKING:",
+  # Protocol method bodies are just an ellipsis and are never executed.
+  '^\s*\.\.\.\s*$',
 ]

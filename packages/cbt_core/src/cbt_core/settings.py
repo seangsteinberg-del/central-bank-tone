@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://cbt:cbt@localhost:5432/cbt"
     secret_key: SecretStr = SecretStr("dev-only-change-me")
 
+    # All generative work goes through Google Gemini (ADR 0006). No paid third-party API.
+    gemini_api_key: SecretStr = SecretStr("")
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_embedding_model: str = "gemini-embedding-001"
+
     @field_validator("secret_key")
     @classmethod
     def _reject_placeholder_in_production(cls, value: SecretStr, info: ValidationInfo) -> SecretStr:
@@ -69,6 +74,22 @@ class Settings(BaseSettings):
             raise ConfigurationError(
                 "CBT_SECRET_KEY is a placeholder; set a real secret when "
                 "CBT_ENVIRONMENT=production."
+            )
+        return value
+
+    @field_validator("gemini_api_key")
+    @classmethod
+    def _require_gemini_key_in_production(cls, value: SecretStr, info: ValidationInfo) -> SecretStr:
+        """Require a Gemini API key in production (CLAUDE.md section 11).
+
+        Raises:
+            ConfigurationError: If ``environment`` is production and no key is set. The key
+                value itself is never included in the message.
+        """
+        environment = info.data.get("environment")
+        if environment is Environment.PRODUCTION and not value.get_secret_value():
+            raise ConfigurationError(
+                "CBT_GEMINI_API_KEY is required when CBT_ENVIRONMENT=production."
             )
         return value
 

@@ -25,6 +25,11 @@ All notable changes to this project are documented in this file. The format foll
 
 - ADR 0006: decision to use Google Gemini for all LLM work, scrape speeches automatically via a
   future `cbt_worker` adapter, and use no paid third-party APIs.
+- LLM boundary: the `LlmClient` protocol and a Gemini implementation (`google-genai`, ADR 0007),
+  the `ToneAnalysis` domain value, and `AnalysisService`, which derives a summary and tone for a
+  speech and records the tone observation. Gemini settings (`CBT_GEMINI_API_KEY` as `SecretStr`,
+  `CBT_GEMINI_MODEL` defaulting to `gemini-2.5-flash`, `CBT_GEMINI_EMBEDDING_MODEL`); production
+  requires a real key.
 
 ### Changed
 
