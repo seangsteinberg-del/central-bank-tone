@@ -167,6 +167,66 @@ def test_speaker_speech_title_links_to_its_detail_page(web_client: TestClient) -
     assert "/speeches/" in response.text  # the speech title is a link into the detail page
 
 
+def _two_bank_corpus(client: TestClient) -> None:
+    """Register a Fed and an ECB speaker and give each a distinct (non-deduped) scored speech."""
+    fed = _register(client, "Jerome Powell", "federal_reserve")
+    ecb = _register(client, "Christine Lagarde", "ecb")
+    _ingest_named(
+        client,
+        fed,
+        title="Fed remarks",
+        url="https://example.org/f/1",
+        delivered_on="2026-02-01",
+        text="we will keep policy restrictive to bring inflation down",
+    )
+    _ingest_named(
+        client,
+        ecb,
+        title="ECB remarks",
+        url="https://example.org/e/1",
+        delivered_on="2026-02-02",
+        text="the council sees room to ease as growth slows and prices cool",
+    )
+
+
+@pytest.mark.web
+def test_dashboard_groups_committees_by_bank_with_a_toggle(web_client: TestClient) -> None:
+    _two_bank_corpus(web_client)
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "Committee tone by bank" in response.text  # the per-bank section, not a global pool
+    assert "/ui/leaderboard?bank=federal_reserve" in response.text  # one bank tab
+    assert "/ui/leaderboard?bank=ecb" in response.text  # the toggle's other bank tab
+
+
+@pytest.mark.web
+def test_dashboard_masthead_is_a_data_derived_read_not_marketing(web_client: TestClient) -> None:
+    _two_bank_corpus(web_client)
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "tone index" in response.text  # the data-derived desk read, with the corpus tone index
+    assert "central-bank chorus" in response.text  # the computed one-line headline
+    assert "speeches move markets" not in response.text  # the old landing-page pitch is gone
+
+
+@pytest.mark.web
+def test_leaderboard_fragment_shows_only_the_selected_banks_speakers(
+    web_client: TestClient,
+) -> None:
+    _two_bank_corpus(web_client)
+    response = web_client.get("/ui/leaderboard", params={"bank": "federal_reserve"})
+    assert response.status_code == 200
+    assert "Federal Reserve committee" in response.text
+    assert "Jerome Powell" in response.text  # the selected bank's member
+    assert "Christine Lagarde" not in response.text  # an ECB member is absent from the Fed board
+
+
+@pytest.mark.web
+def test_leaderboard_rejects_unknown_bank_with_422(web_client: TestClient) -> None:
+    response = web_client.get("/ui/leaderboard", params={"bank": "not_a_bank"})
+    assert response.status_code == 422
+
+
 @pytest.mark.web
 def test_speech_detail_shows_summary_and_committee_movement(web_client: TestClient) -> None:
     speaker_id = _register(web_client)

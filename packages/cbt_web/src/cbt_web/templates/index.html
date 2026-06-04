@@ -1,21 +1,26 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="hero">
-  <div class="eyebrow">Monetary policy communication, scored</div>
-  <h1>How hawkish or dovish is each central banker, over time?</h1>
-  <p>
-    Central bank speeches move markets. This platform reads them, scores their tone per speaker,
-    cross-checks a supervised model against a deterministic lexicon, and makes the whole corpus
-    queryable in plain English. The tone signal is measured against labeled data, not asserted.
-  </p>
-  <div class="hero-finding">
-    Supervised classifier <strong>59.9%</strong> vs lexicon <strong>51.8%</strong> on the FOMC
-    benchmark &middot; <a href="/methodology" style="color:#cdd9f1;text-decoration:underline">see how it is measured</a>
+<section class="hero desk-head">
+  <div class="eyebrow">Central Bank Tone &middot; desk{% if overview.span_end %} &middot; as of {{ overview.span_end | format_date }}{% endif %}</div>
+  {% if overview.read %}
+  <h1>{{ overview.read.headline }}</h1>
+  <div class="desk-tape">
+    <span class="tape-item">tone index
+      <span class="score-chip {{ overview.read.now | score_chip }}">{{ "%+.2f" | format(overview.read.now) }}</span>
+    </span>
+    <span class="tape-item">{{ overview.read.hawk_bank }} <span class="tape-dir hawk">most hawkish</span></span>
+    <span class="tape-item">{{ overview.read.dove_bank }} <span class="tape-dir dove">most dovish</span></span>
+  </div>
+  {% else %}
+  <h1>Central bank tone</h1>
+  {% endif %}
+  <div class="desk-coverage">
+    {{ overview.speeches }} speeches &middot; {{ overview.speakers }} speakers &middot; {{ overview.banks }} banks{% if overview.span_start and overview.span_end %} &middot; {{ overview.span_start | format_date }} &rarr; {{ overview.span_end | format_date }}{% endif %}
   </div>
   <form class="ask-form" hx-post="/ui/ask" hx-target="#corpus-answer" hx-disabled-elt="find button"
         aria-label="Ask the corpus a natural-language question">
     <input type="text" name="question" maxlength="1000" required
-           placeholder="Ask the corpus: e.g. Which speakers sound most hawkish about inflation?"
+           placeholder="Query the corpus: e.g. Which committees are turning hawkish on inflation?"
            aria-label="Ask the corpus">
     <button type="submit">Ask</button>
   </form>
@@ -41,45 +46,73 @@
 </section>
 {% endif %}
 
-{% if overview.hawkish or overview.dovish %}
-<div class="grid-2">
-  <section class="panel">
-    <h2>Leaning hawkish</h2>
-    <p class="muted" style="margin-top:-4px;font-size:.85rem">By each speaker's most recent tone score.</p>
-    {% if overview.hawkish %}
-    <ol class="leaderboard">
-      {% for row in overview.hawkish %}
-      <li>
-        <span class="rank">{{ loop.index }}</span>
-        <span class="who">
-          <a href="/speakers/{{ row.speaker.id }}">{{ row.speaker.name }}</a>
-          <span class="sub">{{ row.speaker.central_bank.value | replace("_", " ") | title }} &middot; {{ row.count }} obs</span>
-        </span>
-        <span class="score-chip {{ row.score | score_chip }}">{{ "%+.2f" | format(row.score) }}</span>
-      </li>
-      {% endfor %}
-    </ol>
-    {% else %}<p class="muted empty">No hawkish-leaning speakers yet.</p>{% endif %}
-  </section>
-  <section class="panel">
-    <h2>Leaning dovish</h2>
-    <p class="muted" style="margin-top:-4px;font-size:.85rem">By each speaker's most recent tone score.</p>
-    {% if overview.dovish %}
-    <ol class="leaderboard">
-      {% for row in overview.dovish %}
-      <li>
-        <span class="rank">{{ loop.index }}</span>
-        <span class="who">
-          <a href="/speakers/{{ row.speaker.id }}">{{ row.speaker.name }}</a>
-          <span class="sub">{{ row.speaker.central_bank.value | replace("_", " ") | title }} &middot; {{ row.count }} obs</span>
-        </span>
-        <span class="score-chip {{ row.score | score_chip }}">{{ "%+.2f" | format(row.score) }}</span>
-      </li>
-      {% endfor %}
-    </ol>
-    {% else %}<p class="muted empty">No dovish-leaning speakers yet.</p>{% endif %}
-  </section>
+{% if overview.tone_series %}
+{% set s = overview.tone_series %}
+<div class="section-title">
+  <h2>Tone drift across central banks</h2>
+  <span class="faint-note">monthly mean tone, shaded &plusmn;1 std &middot; {{ s.months }} months</span>
 </div>
+<section class="panel">
+  <svg class="band-chart" viewBox="0 0 {{ s.width }} {{ s.height }}" preserveAspectRatio="xMidYMid meet"
+       role="img" aria-label="Corpus-wide central bank tone over time, hawkish to dovish">
+    <rect class="band-haw" x="{{ s.pad_l }}" y="{{ s.plot_top }}"
+          width="{{ s.width - s.pad_l - s.pad_r }}" height="{{ s.mid_y - s.plot_top }}"/>
+    <rect class="band-dov" x="{{ s.pad_l }}" y="{{ s.mid_y }}"
+          width="{{ s.width - s.pad_l - s.pad_r }}" height="{{ s.plot_bottom - s.mid_y }}"/>
+    {% for t in s.ticks %}
+    <line class="{{ 'zero-line' if t.zero else 'grid-line' }}" x1="{{ s.pad_l }}" y1="{{ t.y }}" x2="{{ s.width - s.pad_r }}" y2="{{ t.y }}"/>
+    <text class="axis-label tick" x="{{ s.pad_l - 7 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ t.label }}</text>
+    {% endfor %}
+    {% if s.months > 1 %}
+    <polygon class="band-area" points="{{ s.band_path }}"/>
+    <polyline class="band-mean" points="{{ s.mean_polyline }}"/>
+    {% endif %}
+    {% for p in s.points %}
+    <circle class="band-dot" cx="{{ p.x }}" cy="{{ p.mean_y }}" r="2.2"><title>{{ p.label }}</title></circle>
+    {% endfor %}
+    {% for p in s.points if p.show_label %}
+    <text class="axis-label" x="{{ p.x }}" y="{{ s.height - 5 }}" text-anchor="middle">{{ p.label }}</text>
+    {% endfor %}
+  </svg>
+  <div class="chart-legend">
+    <span><span class="swatch" style="background:var(--accent)"></span>monthly mean</span>
+    <span><span class="swatch" style="background:rgba(134,141,154,0.4)"></span>&plusmn;1 std</span>
+    <span><span class="swatch" style="background:var(--hawkish)"></span>hawkish</span>
+    <span><span class="swatch" style="background:var(--dovish)"></span>dovish</span>
+  </div>
+</section>
+{% endif %}
+
+{% if overview.boards %}
+<div class="section-title">
+  <h2>Policy stance by bank</h2>
+  <span class="faint-note">committee mean tone, hawkish to dovish</span>
+</div>
+<section class="panel stance">
+  <div class="committee-axis"><span>&larr; dovish</span><span>neutral</span><span>hawkish &rarr;</span></div>
+  <ul class="stance-list">
+    {% for b in overview.boards | sort(attribute="mean_score", reverse=true) %}
+    <li class="stance-row">
+      <a class="stance-bank" href="/ui/leaderboard?bank={{ b.bank.value }}"
+         hx-get="/ui/leaderboard?bank={{ b.bank.value }}" hx-target="#bank-board" hx-swap="outerHTML">
+        {{ b.label }}<span class="sub num">{{ b.speaker_count }}</span>
+      </a>
+      <div class="move-track" role="img"
+           aria-label="{{ b.label }} committee mean tone {{ '%+.2f' | format(b.mean_score) }}">
+        <span class="move-center"></span>
+        <span class="move-fill {{ b.mean_score | tone_side }}" style="width:{{ b.mean_score | bar_width }}%"></span>
+      </div>
+      <span class="score-chip {{ b.mean_score | score_chip }}">{{ "%+.2f" | format(b.mean_score) }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<div class="section-title">
+  <h2>Committee tone by bank</h2>
+  <span class="faint-note">tone compares only within a committee, not across banks</span>
+</div>
+{% include "_leaderboard.html" %}
 {% endif %}
 
 {% if overview.recent %}
@@ -102,7 +135,7 @@
 </ul>
 {% endif %}
 
-<section class="directory">
+<section class="directory" id="speakers">
   <div class="section-title"><h2>All speakers</h2></div>
   <input class="search" type="search" name="q"
          placeholder="Search by name or central bank"

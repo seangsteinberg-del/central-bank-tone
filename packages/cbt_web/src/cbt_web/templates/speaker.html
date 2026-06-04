@@ -35,25 +35,27 @@
   <svg class="tone-chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}"
        preserveAspectRatio="xMidYMid meet" role="img"
        aria-label="Tone of {{ speaker.name }} over time, from dovish to hawkish">
-    <line class="grid-line" x1="{{ chart.pad_l }}" y1="{{ chart.plot_top }}" x2="{{ chart.width - chart.pad_r }}" y2="{{ chart.plot_top }}"/>
-    <line class="grid-line" x1="{{ chart.pad_l }}" y1="{{ chart.plot_bottom }}" x2="{{ chart.width - chart.pad_r }}" y2="{{ chart.plot_bottom }}"/>
-    <line class="zero-line" x1="{{ chart.pad_l }}" y1="{{ chart.mid_y }}" x2="{{ chart.width - chart.pad_r }}" y2="{{ chart.mid_y }}"/>
-    {% for p in chart.points %}
-    <line class="stem {{ p.tone | tone_class }}" x1="{{ p.x }}" y1="{{ p.zero_y }}" x2="{{ p.x }}" y2="{{ p.y }}"/>
+    <rect class="band band-haw" x="{{ chart.pad_l }}" y="{{ chart.plot_top }}"
+          width="{{ chart.width - chart.pad_l - chart.pad_r }}" height="{{ chart.mid_y - chart.plot_top }}"/>
+    <rect class="band band-dov" x="{{ chart.pad_l }}" y="{{ chart.mid_y }}"
+          width="{{ chart.width - chart.pad_l - chart.pad_r }}" height="{{ chart.plot_bottom - chart.mid_y }}"/>
+    {% for t in chart.ticks %}
+    <line class="{{ 'zero-line' if t.zero else 'grid-line' }}" x1="{{ chart.pad_l }}" y1="{{ t.y }}" x2="{{ chart.width - chart.pad_r }}" y2="{{ t.y }}"/>
+    <text class="axis-label tick" x="{{ chart.pad_l - 7 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ t.label }}</text>
     {% endfor %}
     {% if chart.points | length > 1 %}
     <polyline class="tone-line" points="{{ chart.polyline }}"/>
     {% endif %}
     {% for p in chart.points %}
-    <circle class="dot {{ p.tone | tone_class }}" cx="{{ p.x }}" cy="{{ p.y }}" r="4">
+    <circle class="dot {{ p.tone | tone_class }}{{ ' latest' if loop.last }}" cx="{{ p.x }}" cy="{{ p.y }}" r="{{ 5 if loop.last else 3.5 }}">
       <title>{{ p.label }}: {{ "%+.2f" | format(p.score) }} ({{ p.tone | tone_label }})</title>
     </circle>
     {% endfor %}
+    {% set last = chart.points[-1] %}
+    <text class="latest-value {{ last.tone | tone_class }}" x="{{ last.x - 9 }}" y="{{ last.y + 3 }}" text-anchor="end">{{ "%+.2f" | format(last.score) }}</text>
     {% for p in chart.points if p.show_label %}
     <text class="axis-label" x="{{ p.x }}" y="{{ chart.height - 6 }}" text-anchor="middle">{{ p.label }}</text>
     {% endfor %}
-    <text class="axis-label" x="{{ chart.width - chart.pad_r }}" y="{{ chart.plot_top - 5 }}" text-anchor="end">+1 hawkish</text>
-    <text class="axis-label" x="{{ chart.width - chart.pad_r }}" y="{{ chart.plot_bottom + 13 }}" text-anchor="end">-1 dovish</text>
   </svg>
   <div class="chart-legend">
     <span><span class="swatch" style="background:var(--hawkish)"></span>hawkish</span>

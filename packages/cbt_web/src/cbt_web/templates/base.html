@@ -7,23 +7,65 @@
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/vendor/htmx.min.js" defer></script>
 </head>
+{% set _path = request.url.path %}
 <body>
-  <header class="site-header">
-    <a class="brand" href="/"><span class="brand-mark"></span> Central Bank Tone</a>
-    <nav class="site-nav">
-      <a href="/">Dashboard</a>
-      <a href="/methodology">Methodology</a>
-      <a href="/admin">Add data</a>
-    </nav>
-  </header>
-  <main class="content">
-    {% block content %}{% endblock %}
-  </main>
-  <footer class="site-footer">
-    Tone is scored by a supervised classifier and a Gemini LLM judge, cross-checked against a
-    deterministic lexicon; a large disagreement is flagged for review. Answers are grounded in
-    retrieved speech excerpts and abstain when no source is relevant. See
-    <a href="/methodology">Methodology</a> for the measured accuracy.
-  </footer>
+  <div class="app-shell">
+    <aside class="rail">
+      <a class="rail-brand" href="/">
+        <span class="name"><span class="brand-mark"></span> Central Bank Tone</span>
+        <span class="sub">monetary policy / tone</span>
+      </a>
+
+      <nav class="rail-group">
+        <div class="rail-group-label">Corpus</div>
+        <a class="rail-link {{ 'active' if _path == '/' }}" href="/">Dashboard</a>
+        <a class="rail-link {{ 'active' if _path.startswith('/speakers') or _path.startswith('/speeches') }}" href="/#speakers">Speakers</a>
+        <a class="rail-link {{ 'active' if _path.startswith('/methodology') }}" href="/methodology">Methodology</a>
+      </nav>
+
+      <nav class="rail-group">
+        <div class="rail-group-label">Data</div>
+        <a class="rail-link {{ 'active' if _path.startswith('/admin') }}" href="/admin">Add data</a>
+      </nav>
+
+      <div class="rail-status">
+        <div class="row"><span class="dot ok"></span> tone scored locally</div>
+        <div class="row"><span class="dot amber"></span> Gemini optional</div>
+        <div class="rail-build">central-bank-tone</div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="crumb">{% block crumb %}{{ _path }}{% endblock %}</div>
+        <div class="topbar-status">
+          <span class="live"><span class="dot ok"></span> online</span>
+          <span class="sep">/</span>
+          <span id="clock" class="num">--:--:--</span>
+        </div>
+      </header>
+
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+
+      <footer class="site-footer">
+        Tone is scored by a supervised classifier and a Gemini LLM judge, cross-checked against a
+        deterministic lexicon; a large disagreement is flagged for review. Answers are grounded in
+        retrieved speech excerpts and abstain when no source is relevant. See
+        <a href="/methodology">Methodology</a> for the measured accuracy.
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var el = document.getElementById("clock");
+      if (!el) return;
+      function tick() { el.textContent = new Date().toLocaleTimeString([], { hour12: false }); }
+      tick();
+      setInterval(tick, 1000);
+    })();
+  </script>
 </body>
 </html>

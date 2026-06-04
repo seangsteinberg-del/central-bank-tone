@@ -57,6 +57,20 @@ def _score_chip(score: float) -> str:
     return "zero"
 
 
+def _tone_side(score: float) -> str:
+    """Return the diverging-bar side for a tone score: ``hawk`` (>0), ``dove`` (<0), or ``flat``."""
+    if score > 0.02:
+        return "hawk"
+    if score < -0.02:
+        return "dove"
+    return "flat"
+
+
+def _bar_width(score: float) -> str:
+    """Return a diverging tone bar's width percent for a score on ``[-1, 1]`` (half-track is 1.0)."""
+    return f"{min(abs(score), 1.0) * 50.0:.1f}"
+
+
 def build_templates() -> Jinja2Templates:
     """Build the Jinja2 templates object with the UI's presentation filters registered.
 
@@ -69,6 +83,8 @@ def build_templates() -> Jinja2Templates:
     instance.env.filters["format_date"] = _format_date
     instance.env.filters["year"] = _year
     instance.env.filters["score_chip"] = _score_chip
+    instance.env.filters["tone_side"] = _tone_side
+    instance.env.filters["bar_width"] = _bar_width
     return instance
 
 

@@ -61,10 +61,10 @@
     </div>
   </div>
 
-  <p class="muted" style="font-size:.82rem;margin:6px 0 10px">
+  <p class="faint-note" style="margin:6px 0 10px">
     Each bar shows how far a member shifted since their previous speech, scaled to the largest mover.
-    Hawkish moves point right, dovish moves left.
   </p>
+  <div class="committee-axis"><span>&larr; more dovish</span><span>no change</span><span>more hawkish &rarr;</span></div>
   <ul class="move-list">
     {% for row in rows %}
     <li class="move-row{% if row.member.is_subject %} subject{% endif %}">

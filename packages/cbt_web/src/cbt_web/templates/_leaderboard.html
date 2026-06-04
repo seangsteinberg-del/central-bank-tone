@@ -1,0 +1,56 @@
+<div id="bank-board" class="bank-board">
+  {% if error %}<p class="answer-error">{{ error }}</p>{% endif %}
+  {% if boards %}
+  <div class="tabs" role="tablist" aria-label="Filter speakers by central bank">
+    {% for b in boards %}
+    <a class="tab {{ 'active' if board and board.bank == b.bank }}"
+       href="/ui/leaderboard?bank={{ b.bank.value }}"
+       hx-get="/ui/leaderboard?bank={{ b.bank.value }}" hx-target="#bank-board" hx-swap="outerHTML"
+       role="tab" aria-selected="{{ 'true' if board and board.bank == b.bank else 'false' }}">
+      {{ b.label }}<span class="tab-count num">{{ b.speaker_count }}</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if board %}
+  <section class="panel committee">
+    <div class="committee-head">
+      <div>
+        <h2>{{ board.label }} committee</h2>
+        <p class="committee-sub">
+          {{ board.speaker_count }} speaker{{ "s" if board.speaker_count != 1 else "" }}
+          &middot; {{ board.hawk_count }} hawkish / {{ board.dove_count }} dovish
+          &middot; ranked by most recent tone
+        </p>
+      </div>
+      <div class="committee-index">
+        <span class="score-chip {{ board.mean_score | score_chip }}">{{ "%+.2f" | format(board.mean_score) }}</span>
+        <span class="committee-index-label">tone index</span>
+      </div>
+    </div>
+
+    <div class="committee-axis"><span>&larr; dovish</span><span>neutral</span><span>hawkish &rarr;</span></div>
+    <ul class="committee-list">
+      {% for row in board.ranked %}
+      <li class="committee-row">
+        <div class="who">
+          <a href="/speakers/{{ row.speaker.id }}">{{ row.speaker.name }}</a>
+          <span class="sub">{{ row.speaker.role }} &middot; {{ row.count }} obs</span>
+        </div>
+        <svg class="spark" viewBox="0 0 {{ row.spark.width }} {{ row.spark.height }}"
+             preserveAspectRatio="xMidYMid meet" role="img"
+             aria-label="{{ row.speaker.name }} tone history, latest {{ '%+.2f' | format(row.score) }}">
+          <line class="spark-zero" x1="0" y1="{{ row.spark.zero_y }}" x2="{{ row.spark.width }}" y2="{{ row.spark.zero_y }}"/>
+          {% if row.count > 1 %}<polyline class="spark-line {{ row.tone | tone_class }}" points="{{ row.spark.polyline }}"/>{% endif %}
+          <circle class="spark-dot {{ row.tone | tone_class }}" cx="{{ row.spark.last_x }}" cy="{{ row.spark.last_y }}" r="2.6"/>
+        </svg>
+        <span class="score-chip {{ row.score | score_chip }}">{{ "%+.2f" | format(row.score) }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% else %}
+  <p class="muted empty">No tone observations yet. Run the worker or add a speech to populate the committees.</p>
+  {% endif %}
+</div>

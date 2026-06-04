@@ -7,6 +7,25 @@ All notable changes to this project are documented in this file. The format foll
 ## [Unreleased]
 
 ### Added
+- Web UI: a dark research-desk theme (left rail with grouped nav and an active-item indicator, a
+  sticky top bar with a breadcrumb and live clock, monospace metadata, metric cards).
+- Dashboard: a per-bank committee view. A "Policy stance by bank" overview ranks each bank's
+  committee by mean tone, and a bank toggle (`GET /ui/leaderboard?bank=...`) shows one committee's
+  members ranked hawkish-to-dovish on a diverging tone map. Speakers are never pooled across banks
+  (tone only compares within a committee).
+- Per-speaker tone-over-time chart rebuilt with hawkish/dovish zones, value gridlines and axis
+  ticks, and a highlighted most-recent reading.
+- Inline tone-history sparklines on each committee member, a corpus-wide "Tone drift across central
+  banks" band chart (monthly mean tone with a +/- 1 std envelope), and the speech-page committee
+  movement chart restyled to match (a shared dovish/neutral/hawkish axis).
+- `scripts/run_live.py` flags: `--no-serve` (fill alongside a running server) and `--no-ocr`
+  (skip the Gemini-vision OCR fallback so a bulk fill never stalls on the vision endpoint). The
+  live runner now fetches the RSS feed first so the newest speeches land before the bulk backfill.
+
+### Fixed
+- BIS RSS source: a transient HTTP error on one speech's detail fetch no longer aborts the whole
+  feed; each entry is scraped in isolation (the regression that left the corpus short of today).
+
 - Repository scaffold: `uv` workspace with `cbt_core` (domain core) and `cbt_api` (FastAPI
   adapter), the binding standards in `CLAUDE.md`, the `.claude/` agent harness, and the
   `scripts/check_imports.py` architecture checker.
