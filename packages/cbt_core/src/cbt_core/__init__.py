@@ -7,7 +7,14 @@ internals (rows, mappers) are deliberately not exported.
 
 from __future__ import annotations
 
-from cbt_core.analysis import HawkishDovishLexicon, LexiconScore, chunk_text
+from cbt_core.analysis import (
+    ClassifierScore,
+    HawkishDovishLexicon,
+    LexiconScore,
+    ToneClassifier,
+    ToneModelError,
+    chunk_text,
+)
 from cbt_core.domain import (
     Answer,
     CentralBank,
@@ -53,6 +60,7 @@ __all__ = [
     "CbtError",
     "CentralBank",
     "Citation",
+    "ClassifierScore",
     "ConfigurationError",
     "EntityNotFoundError",
     "Environment",
@@ -74,7 +82,9 @@ __all__ = [
     "Speech",
     "SpeechRetriever",
     "ToneAnalysis",
+    "ToneClassifier",
     "ToneLabel",
+    "ToneModelError",
     "ToneObservation",
     "ToneService",
     "bind_request_context",

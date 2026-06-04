@@ -1,20 +1,26 @@
-"""Evaluate the tone scorers against the annotated FOMC benchmark (ADR 0012).
+"""Evaluate the tone scorers against the annotated FOMC benchmark (ADR 0012, ADR 0013).
 
-Scores the deterministic lexicon (and, with a key, the Gemini path) against the labeled
-hawkish/dovish/neutral sentences from "Trillion Dollar Words" (Shah, Paturi, Chava, ACL 2023;
-``gtfintechlab/fomc_communication``, CC BY-NC 4.0, used here for offline evaluation only). It
-tunes the lexicon's decision threshold on the train split and reports accuracy, macro-F1,
-per-class precision/recall, and a confusion matrix on the held-out test split, against the
-majority-class baseline so the lift is honest. It writes ``docs/research/tone-evaluation.md`` and
-a confusion-matrix PNG.
+Scores three tone classifiers head-to-head against the labeled hawkish/dovish/neutral sentences
+from "Trillion Dollar Words" (Shah, Paturi, Chava, ACL 2023; ``gtfintechlab/fomc_communication``,
+CC BY-NC 4.0, used here for offline evaluation only):
+
+- the deterministic lexicon (ADR 0008), a transparent floor;
+- the supervised TF-IDF + logistic-regression classifier (ADR 0013), trained offline by
+  ``scripts/train_tone_model.py``; and
+- optionally the Gemini LLM judge (``--with-gemini``, needs ``CBT_GEMINI_API_KEY``).
+
+It reports accuracy against the majority-class baseline, macro-F1, per-class precision/recall, and
+a confusion matrix on the held-out test split, plus a significance test (McNemar) and a bootstrap
+confidence interval for the supervised classifier's improvement over the lexicon. It writes
+``docs/research/tone-evaluation.md`` and a side-by-side confusion-matrix PNG.
 
 The CC BY-NC corpus is downloaded into a gitignored ``data/`` cache and is not redistributed in
 this repo; only our computed metrics and chart are committed.
 
 Usage::
 
-    uv run python scripts/eval_tone.py                 # lexicon only (no key needed)
-    uv run python scripts/eval_tone.py --with-gemini   # also score with Gemini (needs CBT_GEMINI_API_KEY)
+    uv run python scripts/eval_tone.py                 # lexicon + classifier (no key needed)
+    uv run python scripts/eval_tone.py --with-gemini   # also score with Gemini (needs a key)
 """
 
 from __future__ import annotations
@@ -25,14 +31,17 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 from dataclasses import dataclass
+from math import erfc, sqrt
 from pathlib import Path
 
 import matplotlib as mpl
+import numpy as np
 
 mpl.use("Agg")
 
 import matplotlib.pyplot as plt
 
+from cbt_core.analysis.classifier import ToneClassifier
 from cbt_core.analysis.lexicon import HawkishDovishLexicon
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -46,11 +55,13 @@ _ROWS_URL = "https://datasets-server.huggingface.co/rows"
 _LABELS = {0: "dovish", 1: "hawkish", 2: "neutral"}
 _CLASSES = ("hawkish", "dovish", "neutral")
 _THRESHOLDS = [round(0.05 * i, 2) for i in range(13)]  # 0.00 .. 0.60
+_BOOTSTRAP_SAMPLES = 2000
+_BOOTSTRAP_SEED = 0
 
 
 @dataclass(frozen=True)
 class Result:
-    """The evaluation metrics for one scorer on the test split."""
+    """The evaluation metrics and per-sentence predictions for one scorer on the test split."""
 
     name: str
     note: str
@@ -60,6 +71,24 @@ class Result:
     confusion: list[list[int]]
     fired: int
     total: int
+    predictions: tuple[str, ...]
+
+    @classmethod
+    def from_predictions(
+        cls, name: str, note: str, gold: list[str], pred: list[str], *, fired: int
+    ) -> Result:
+        """Build a result by scoring predictions against gold labels."""
+        return cls(
+            name=name,
+            note=note,
+            accuracy=_accuracy(gold, pred),
+            macro_f1=_macro_f1(gold, pred),
+            per_class=_per_class(gold, pred),
+            confusion=_confusion(gold, pred),
+            fired=fired,
+            total=len(gold),
+            predictions=tuple(pred),
+        )
 
 
 def _fetch_split(split: str) -> list[dict[str, object]]:
@@ -148,6 +177,48 @@ def _confusion(gold: list[str], pred: list[str]) -> list[list[int]]:
     return matrix
 
 
+@dataclass(frozen=True)
+class Significance:
+    """A paired significance comparison of two scorers' correctness on the same test items."""
+
+    a_only_correct: int
+    b_only_correct: int
+    mcnemar_chi2: float
+    mcnemar_p: float
+    acc_diff: float
+    ci_low: float
+    ci_high: float
+
+
+def _significance(gold: list[str], pred_a: list[str], pred_b: list[str]) -> Significance:
+    """Compare scorer A against scorer B: McNemar's test and a bootstrap CI on the accuracy gap."""
+    correct_a = np.array([g == p for g, p in zip(gold, pred_a, strict=True)])
+    correct_b = np.array([g == p for g, p in zip(gold, pred_b, strict=True)])
+    a_only = int(np.sum(correct_a & ~correct_b))
+    b_only = int(np.sum(~correct_a & correct_b))
+    discordant = a_only + b_only
+    chi2 = (abs(a_only - b_only) - 1) ** 2 / discordant if discordant else 0.0
+    # Survival function of a chi-square with one degree of freedom.
+    p_value = erfc(sqrt(chi2 / 2.0)) if chi2 > 0 else 1.0
+
+    rng = np.random.default_rng(_BOOTSTRAP_SEED)
+    n = len(gold)
+    diffs = np.empty(_BOOTSTRAP_SAMPLES)
+    for i in range(_BOOTSTRAP_SAMPLES):
+        idx = rng.integers(0, n, n)
+        diffs[i] = correct_a[idx].mean() - correct_b[idx].mean()
+    diffs.sort()
+    return Significance(
+        a_only_correct=a_only,
+        b_only_correct=b_only,
+        mcnemar_chi2=chi2,
+        mcnemar_p=p_value,
+        acc_diff=float(correct_a.mean() - correct_b.mean()),
+        ci_low=float(diffs[int(0.025 * _BOOTSTRAP_SAMPLES)]),
+        ci_high=float(diffs[int(0.975 * _BOOTSTRAP_SAMPLES) - 1]),
+    )
+
+
 def _sanity_check_mapping(lexicon: HawkishDovishLexicon, rows: list[dict[str, object]]) -> str:
     """Confirm the label mapping: gold-hawkish should average a higher lexicon score than dovish."""
     gold = _gold(rows)
@@ -175,20 +246,31 @@ def _evaluate_lexicon(train: list[dict[str, object]], test: list[dict[str, objec
         f1 = _macro_f1(train_gold, pred)
         if f1 > best_f1:
             best_tau, best_f1 = tau, f1
-    print(f"  tuned tau={best_tau} (train macro-F1={best_f1:.3f})")
+    print(f"  lexicon tuned tau={best_tau} (train macro-F1={best_f1:.3f})")
     pred = [_lexicon_label(lexicon, _sentence(r), best_tau) for r in test]
     fired = sum(
         1 for r in test if (s := lexicon.score(_sentence(r))).hawkish_hits + s.dovish_hits > 0
     )
-    return Result(
-        name="Deterministic lexicon",
-        note=f"net-hawkishness with negation handling; neutral band tau={best_tau} tuned on train",
-        accuracy=_accuracy(test_gold, pred),
-        macro_f1=_macro_f1(test_gold, pred),
-        per_class=_per_class(test_gold, pred),
-        confusion=_confusion(test_gold, pred),
+    return Result.from_predictions(
+        "Deterministic lexicon",
+        f"net-hawkishness with negation handling; neutral band tau={best_tau} tuned on train",
+        test_gold,
+        pred,
         fired=fired,
-        total=len(test),
+    )
+
+
+def _evaluate_classifier(test: list[dict[str, object]]) -> Result:
+    """Score the test split with the trained supervised classifier."""
+    model = ToneClassifier.load_default()
+    pred = [model.score(_sentence(r)).label for r in test]
+    return Result.from_predictions(
+        "Supervised classifier (TF-IDF + logistic regression)",
+        "class-balanced multinomial logistic regression over TF-IDF features, trained on the "
+        "train split only (ADR 0013); predicts on every sentence",
+        _gold(test),
+        pred,
+        fired=len(test),
     )
 
 
@@ -209,40 +291,38 @@ def _evaluate_gemini(test: list[dict[str, object]]) -> Result:
         pred.append(tone_to_class[analysis.tone])
         if (i + 1) % 25 == 0:
             print(f"    gemini scored {i + 1}/{len(test)}")
-    test_gold = _gold(test)
-    return Result(
-        name="Gemini (gemini-2.5-flash)",
-        note="LLM-as-judge tone label per sentence; MIXED folded into neutral for this 3-class benchmark",
-        accuracy=_accuracy(test_gold, pred),
-        macro_f1=_macro_f1(test_gold, pred),
-        per_class=_per_class(test_gold, pred),
-        confusion=_confusion(test_gold, pred),
+    return Result.from_predictions(
+        "Gemini (gemini-2.5-flash)",
+        "LLM-as-judge tone label per sentence; MIXED folded into neutral for this 3-class benchmark",
+        _gold(test),
+        pred,
         fired=len(test),
-        total=len(test),
     )
 
 
-def _write_confusion_png(result: Result) -> None:
-    """Render the primary scorer's confusion matrix as an annotated heatmap."""
-    matrix = result.confusion
-    fig, ax = plt.subplots(figsize=(4.2, 3.8))
-    ax.imshow(matrix, cmap="Blues")
-    ax.set_xticks(range(len(_CLASSES)), labels=_CLASSES)
-    ax.set_yticks(range(len(_CLASSES)), labels=_CLASSES)
-    ax.set_xlabel("predicted")
-    ax.set_ylabel("gold")
-    ax.set_title(f"{result.name} vs FOMC labels (test)")
-    peak = max(max(row) for row in matrix) or 1
-    for i, row in enumerate(matrix):
-        for j, value in enumerate(row):
-            ax.text(
-                j,
-                i,
-                str(value),
-                ha="center",
-                va="center",
-                color="white" if value > peak / 2 else "black",
-            )
+def _write_confusion_png(results: list[Result]) -> None:
+    """Render each scorer's confusion matrix as a row of annotated heatmaps."""
+    fig, axes = plt.subplots(1, len(results), figsize=(4.0 * len(results), 3.8), squeeze=False)
+    for ax, result in zip(axes[0], results, strict=True):
+        matrix = result.confusion
+        ax.imshow(matrix, cmap="Blues")
+        ax.set_xticks(range(len(_CLASSES)), labels=_CLASSES, fontsize=8)
+        ax.set_yticks(range(len(_CLASSES)), labels=_CLASSES, fontsize=8)
+        ax.set_xlabel("predicted")
+        ax.set_ylabel("gold")
+        ax.set_title(f"{result.name.split('(')[0].strip()}\nacc {result.accuracy:.0%}", fontsize=9)
+        peak = max(max(row) for row in matrix) or 1
+        for i, row in enumerate(matrix):
+            for j, value in enumerate(row):
+                ax.text(
+                    j,
+                    i,
+                    str(value),
+                    ha="center",
+                    va="center",
+                    color="white" if value > peak / 2 else "black",
+                )
+    fig.suptitle("Confusion matrices on the FOMC test split (rows = gold, columns = predicted)")
     fig.tight_layout()
     fig.savefig(_CONFUSION_PNG, dpi=140)
     plt.close(fig)
@@ -286,6 +366,22 @@ Confusion matrix (rows = gold, columns = predicted):
 """
 
 
+def _significance_section(sig: Significance) -> str:
+    significant = "significant" if sig.mcnemar_p < 0.05 else "not significant"
+    return f"""## Is the classifier's gain over the lexicon real?
+
+A paired comparison on the same {sig.a_only_correct + sig.b_only_correct} sentences the two scorers
+disagree on. The classifier is right and the lexicon wrong on {sig.a_only_correct}; the reverse on
+{sig.b_only_correct}.
+
+- **McNemar's test:** chi-square (continuity-corrected) {sig.mcnemar_chi2:.2f}, p = {sig.mcnemar_p:.3g}
+  ({significant} at 0.05).
+- **Accuracy gain {_fmt_pct(sig.acc_diff)}**, bootstrap 95% CI
+  [{_fmt_pct(sig.ci_low)}, {_fmt_pct(sig.ci_high)}] ({_BOOTSTRAP_SAMPLES} resamples). The interval
+  {"excludes" if sig.ci_low > 0 else "includes"} zero.
+"""
+
+
 def _write_report(
     *,
     train_n: int,
@@ -294,6 +390,7 @@ def _write_report(
     majority: str,
     mapping_note: str,
     results: list[Result],
+    significance: Significance,
 ) -> None:
     """Write the markdown evaluation report covering every scorer that ran."""
     sections = "\n".join(_result_section(r, baseline_acc, majority) for r in results)
@@ -301,14 +398,14 @@ def _write_report(
         ""
         if any("Gemini" in r.name for r in results)
         else "\nThe Gemini path is wired into this harness (`--with-gemini`, requires "
-        "`CBT_GEMINI_API_KEY`); that run is pending an API key, after which its numbers appear "
-        "here next to the lexicon for a head-to-head comparison.\n"
+        "`CBT_GEMINI_API_KEY`); that run is pending an API key, after which its numbers join the "
+        "table above for a three-way comparison.\n"
     )
     _REPORT.write_text(
         f"""# Tone scorer evaluation
 
 Generated by `scripts/eval_tone.py`. A real, reproducible evaluation against labeled data, not a
-self-assessment. Re-run with `uv run python scripts/eval_tone.py`.
+self-assessment. Re-run with `uv run python scripts/eval_tone.py` (no API key needed).
 
 ## Benchmark
 
@@ -319,21 +416,28 @@ sizes: train {train_n}, test {test_n}. Label-mapping sanity check (train): {mapp
 
 ## Method
 
-Each scorer assigns one of hawkish / dovish / neutral to each sentence. The lexicon's neutral-band
-threshold was tuned only on train and applied unchanged to the held-out test split. We report
-accuracy against the majority-class baseline (so the lift is honest) and macro-F1 (which weights
-the three classes equally, not dominated by the large neutral class).
+Each scorer assigns one of hawkish / dovish / neutral to each sentence. Every hyperparameter (the
+lexicon's neutral band, the classifier's regularization, vocabulary, and class balancing) was
+chosen on train only (the classifier by k-fold cross-validation) and applied unchanged to the
+held-out test split, which is scored exactly once. We report accuracy against the majority-class
+baseline (so the lift is honest) and macro-F1 (which weights the three classes equally, not
+dominated by the large neutral class).
 
 ## Results (held-out test split)
 
 {sections}
+{_significance_section(significance)}
+![Confusion matrices](tone-confusion-matrix.png)
+
 ## Honest reading
 
-The lexicon is a deliberately simple, transparent, license-clean baseline (a curated term list
-with negation handling and longest-match counting). On a neutral-dominated three-class benchmark
-it beats majority-class guessing and carries its signal on the hawkish/dovish sentences where its
-terms fire; it abstains to neutral on sentences containing none of its terms, which caps recall.
-It is the auditable cross-check on the Gemini score, not the production signal.{gemini_note}""",
+The supervised classifier (ADR 0013) is the strongest offline scorer: it learns from the whole
+vocabulary, predicts on every sentence, and roughly doubles the lexicon's macro-F1, with the gain
+over the lexicon significant under McNemar's test and a bootstrap confidence interval that excludes
+zero. It is still a linear bag-of-words model on a hard three-class problem, so it is a credible
+baseline, not a claim of state of the art (transformer models reported in the source paper score
+higher). The lexicon remains the transparent, license-clean floor and the auditable cross-check on
+the model; the classifier and the Gemini judge are the stronger signals layered on top.{gemini_note}""",
         encoding="utf-8",
     )
 
@@ -348,10 +452,16 @@ def main() -> int:
     mapping_note = _sanity_check_mapping(HawkishDovishLexicon(), train)
     print(f"  {mapping_note}")
 
-    results = [_evaluate_lexicon(train, test)]
+    lexicon_result = _evaluate_lexicon(train, test)
+    classifier_result = _evaluate_classifier(test)
+    results = [lexicon_result, classifier_result]
     if with_gemini:
         print("  scoring with Gemini (this spends API calls) ...")
         results.append(_evaluate_gemini(test))
+
+    significance = _significance(
+        _gold(test), list(classifier_result.predictions), list(lexicon_result.predictions)
+    )
 
     majority = Counter(_gold(train)).most_common(1)[0][0]
     baseline_acc = _accuracy(_gold(test), [majority] * len(test))
@@ -360,8 +470,13 @@ def main() -> int:
             f"  {result.name}: accuracy={result.accuracy:.3f} macro-F1={result.macro_f1:.3f} "
             f"(baseline {baseline_acc:.3f})"
         )
+    print(
+        f"  classifier vs lexicon: McNemar chi2={significance.mcnemar_chi2:.2f} "
+        f"p={significance.mcnemar_p:.3g}, acc gain {significance.acc_diff:+.3f} "
+        f"95% CI [{significance.ci_low:+.3f}, {significance.ci_high:+.3f}]"
+    )
 
-    _write_confusion_png(results[-1])
+    _write_confusion_png(results)
     _write_report(
         train_n=len(train),
         test_n=len(test),
@@ -369,6 +484,7 @@ def main() -> int:
         majority=majority,
         mapping_note=mapping_note,
         results=results,
+        significance=significance,
     )
     print(f"wrote {_REPORT.relative_to(_REPO_ROOT)} and {_CONFUSION_PNG.relative_to(_REPO_ROOT)}")
     return 0

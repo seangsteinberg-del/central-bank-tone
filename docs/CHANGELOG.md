@@ -62,6 +62,13 @@ All notable changes to this project are documented in this file. The format foll
   against the annotated FOMC benchmark and reports accuracy, macro-F1, and a confusion matrix vs a
   majority-class baseline; `scripts/tone_trajectory.py` charts FOMC net-hawkishness vs the fed funds
   rate with correlations. Results committed under `docs/research/`.
+- Supervised tone classifier (ADR 0013): `cbt_core.ToneClassifier`, a pure-numpy TF-IDF +
+  class-balanced multinomial logistic regression trained offline (`scripts/train_tone_model.py`) on
+  the FOMC benchmark and shipped as a small committed JSON artifact. It runs with no API key and no
+  Docker. On the held-out test split it scores 59.9% accuracy / 0.582 macro-F1, versus the lexicon's
+  51.8% / 0.339; `scripts/eval_tone.py` now runs a three-way head-to-head and adds a McNemar
+  significance test (p = 0.012) and a bootstrap confidence interval for the gain over the lexicon.
+  Adds `numpy` as a `cbt_core` runtime dependency.
 - Real model/lexicon cross-check: `cbt_core.analysis.disagrees`, persisted as `lexicon_score` and
   `needs_review` on the tone observation (migration 0004) and on the speech, logged as a WARNING on
   divergence and shown as a "model/lexicon disagree" marker in the UI and on the API responses.
