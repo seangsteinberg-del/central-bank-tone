@@ -69,6 +69,11 @@ All notable changes to this project are documented in this file. The format foll
   51.8% / 0.339; `scripts/eval_tone.py` now runs a three-way head-to-head and adds a McNemar
   significance test (p = 0.012) and a bootstrap confidence interval for the gain over the lexicon.
   Adds `numpy` as a `cbt_core` runtime dependency.
+- Keyless offline LLM boundary (ADR 0014): `cbt_core.OfflineLlmClient` implements the `LlmClient`
+  protocol with no network and no API key, tone from the supervised classifier, a deterministic
+  extractive summary, signed-feature-hashing embeddings for retrieval, and an explicitly extractive
+  (never fabricated) answer. It is the offline implementation the demo runner wires in when no key
+  is set; the Gemini path remains the production signal.
 - Stronger thesis test: `scripts/tone_trajectory.py` now builds both a lexicon and a classifier
   annual tone index and relates them to three FRED series (the fed funds rate and the 2-year and
   10-year Treasury yields), reporting every correlation with a bootstrap 95% CI plus an OLS

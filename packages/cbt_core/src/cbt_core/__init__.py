@@ -34,7 +34,13 @@ from cbt_core.exceptions import (
     InvalidInputError,
     LlmError,
 )
-from cbt_core.llm import GeminiClient, LazyGeminiClient, LlmClient, build_gemini_client
+from cbt_core.llm import (
+    GeminiClient,
+    LazyGeminiClient,
+    LlmClient,
+    OfflineLlmClient,
+    build_gemini_client,
+)
 from cbt_core.logging import (
     bind_request_context,
     clear_request_context,
@@ -74,6 +80,7 @@ __all__ = [
     "LexiconScore",
     "LlmClient",
     "LlmError",
+    "OfflineLlmClient",
     "QaService",
     "RetrievedChunk",
     "Settings",
