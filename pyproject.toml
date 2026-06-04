@@ -111,7 +111,7 @@ enable_error_code = [
 
 # Third-party libs without type stubs: list them here rather than scattering ignores.
 [[tool.mypy.overrides]]
-module = ["testcontainers.*", "pgvector.*", "selectolax.*"]
+module = ["testcontainers.*", "pgvector.*", "selectolax.*", "pypdfium2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

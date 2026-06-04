@@ -95,6 +95,48 @@ def _looks_like_text(body: str) -> bool:
     return legible / len(body) > _MIN_LEGIBLE_FRACTION
 
 
+def make_pdf_extractor(transcribe: Callable[[bytes], str] | None = None) -> Callable[[bytes], str]:
+    """Build a PDF text extractor that falls back to OCR for an un-extractable PDF (ADR 0019).
+
+    pdfminer.six first; if its output is glyph soup (subset fonts with no ToUnicode map) and a
+    ``transcribe`` function is given, every page is rendered and transcribed (Gemini vision), so a
+    speech's full text is recovered even from a PDF no text extractor can decode. With no
+    ``transcribe`` it is pdfminer only.
+
+    Args:
+        transcribe: Transcribes one page image (PNG bytes) to text, or ``None`` for no OCR fallback.
+
+    Returns:
+        A ``bytes -> str`` extractor suitable as ``BisSpeechSource``'s ``pdf_extractor``.
+    """
+
+    def extract(data: bytes) -> str:
+        text = _extract_pdf_text(data)
+        if transcribe is None or _looks_like_text(text):
+            return text
+        return _ocr_pdf(data, transcribe)
+
+    return extract
+
+
+def _ocr_pdf(data: bytes, transcribe: Callable[[bytes], str]) -> str:
+    """Render each PDF page to an image and transcribe it, joining the page texts."""
+    return " ".join(transcribe(page) for page in _render_pdf_pages(data))
+
+
+def _render_pdf_pages(data: bytes, *, scale: float = 2.0) -> list[bytes]:
+    """Render every page of a PDF to PNG bytes with pypdfium2 (imported lazily; it is heavy)."""
+    import pypdfium2
+
+    pages: list[bytes] = []
+    document = pypdfium2.PdfDocument(data)
+    for page in document:
+        buffer = io.BytesIO()
+        page.render(scale=scale).to_pil().save(buffer, format="PNG")
+        pages.append(buffer.getvalue())
+    return pages
+
+
 def _clean_title(title: str, speaker: str) -> str:
     """Strip a BIS author prefix from a listing title.
 

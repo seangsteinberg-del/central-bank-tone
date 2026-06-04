@@ -1,58 +1,66 @@
-"""Serve the live application: real Gemini over your native PostgreSQL, no Docker (ADR 0018).
+"""Serve the live application: real Gemini over native PostgreSQL, persistent, no Docker.
 
-Builds the real stack without a container. Tone scoring, concise summaries, embeddings, and
-question answering all go through the Google Gemini API (``CBT_GEMINI_API_KEY``); speakers and
-speeches persist in PostgreSQL (``CBT_DATABASE_URL``) with the append-only immutability triggers;
-and retrieval uses an in-process cosine index, so no pgvector extension is required (ADR 0018).
-One ingestion pass scrapes real central-bank speeches from the live BIS index, scores and indexes
-them, then the same UI as production is served at http://127.0.0.1:8000.
+Builds the real stack without a container (ADR 0018) and makes it persistent (ADR 0020): tone
+scoring, summaries, embeddings, and question answering go through Gemini; speakers, speeches, and
+the tone history persist in PostgreSQL behind the append-only triggers; and chunk embeddings persist
+in a ``bytea`` column and are reloaded into the in-process cosine index on startup, so a filled
+corpus and its question-answering index survive restarts and the embedding is computed once.
+
+It fills the corpus from two sources, both idempotent (deduplicated by source hash, never
+re-embedded once stored):
+
+- the BIS bulk per-year archives (``speeches_<year>.zip``), whose CSV carries the full speech text,
+  for historical depth across every tracked central bank; and
+- the live BIS RSS feed, for the most recent speeches right up to today.
 
 Prerequisites: a reachable PostgreSQL holding the ``cbt`` database and a valid Gemini key in
-``.env``. The free Gemini tier is rate limited, so a pass of a dozen speeches takes a few minutes.
+``.env``. The free Gemini tier is rate limited (the client retries with backoff), so a large fill
+takes a while; re-running resumes where it left off.
 
 Usage::
 
-    uv run python scripts/run_live.py [--limit N]
+    uv run python scripts/run_live.py [--limit N] [--years 2026,2025,2024]
 """
 
 from __future__ import annotations
 
 import sys
 import time
+from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 import uvicorn
 
 from cbt_core import (
-    LazyGeminiClient,
+    build_gemini_client,
+    configure_logging,
     create_engine_from_settings,
     create_immutability_triggers,
     get_settings,
 )
 from cbt_web.demo import build_demo_app
 from cbt_worker.runner import run_ingestion
-from cbt_worker.sources.bis import BisSpeechSource
+from cbt_worker.sources.base import BytesProvider, SpeechSource
+from cbt_worker.sources.bis import BisSpeechSource, make_pdf_extractor
+from cbt_worker.sources.bis_bulk import BisBulkSpeechSource
 
 _HOST = "127.0.0.1"
 _PORT = 8000
-_DEFAULT_LIMIT = 12
+_DEFAULT_LIMIT = 120
+_DEFAULT_YEARS = (2026, 2025, 2024)
+_BULK_URL = "https://www.bis.org/speeches/speeches_{year}.zip"
 _USER_AGENT = "cbt-worker/0.1 (central-bank-tone research; contact: ops@example.org)"
-_REQUEST_DELAY_SECONDS = 0.5  # polite inter-request delay against the live BIS host
+_REQUEST_DELAY_SECONDS = 0.5
 _LIVE_MAX_DISTANCE = 0.6  # learned Gemini embeddings; the production QaService relevance default
+_CACHE_DIR = Path(__file__).resolve().parents[1] / "data" / "bulk"
 
 
 def _get(url: str) -> httpx.Response:
-    """Fetch a URL politely (a small inter-request delay), raising on any HTTP error.
-
-    Args:
-        url: The URL to fetch.
-
-    Returns:
-        The HTTP response.
-    """
+    """Fetch a URL politely (a small inter-request delay), raising on any HTTP error."""
     time.sleep(_REQUEST_DELAY_SECONDS)
     response = httpx.get(
-        url, timeout=40.0, headers={"User-Agent": _USER_AGENT}, follow_redirects=True
+        url, timeout=120.0, headers={"User-Agent": _USER_AGENT}, follow_redirects=True
     )
     response.raise_for_status()
     return response
@@ -68,31 +76,76 @@ def _pdf_fetcher(url: str) -> bytes:
     return _get(url).content
 
 
-def _limit_from_argv(argv: list[str]) -> int:
-    """Read ``--limit N`` from argv, defaulting to :data:`_DEFAULT_LIMIT`.
+def _bytes_provider(data: bytes) -> BytesProvider:
+    """Wrap already-downloaded archive bytes as a no-argument provider (binds ``data`` per call)."""
+    return lambda: data
+
+
+def _download_bulk(year: int) -> bytes | None:
+    """Return a year's BIS bulk archive bytes, cached under ``data/bulk``, or None if unavailable.
 
     Args:
-        argv: The argument list (without the program name).
+        year: The archive year.
 
     Returns:
-        The number of speeches to fetch from the source this run.
+        The ZIP bytes, or ``None`` if the year is not published yet (a 404).
     """
-    if "--limit" in argv:
-        return int(argv[argv.index("--limit") + 1])
-    return _DEFAULT_LIMIT
+    cache = _CACHE_DIR / f"speeches_{year}.zip"
+    if cache.exists():
+        return cache.read_bytes()
+    try:
+        data = _get(_BULK_URL.format(year=year)).content
+    except httpx.HTTPError:
+        return None
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(data)
+    return data
+
+
+def _build_sources(
+    years: tuple[int, ...], pdf_extractor: Callable[[bytes], str]
+) -> list[SpeechSource]:
+    """Build the historical bulk sources for ``years`` plus the live RSS feed for the latest."""
+    sources: list[SpeechSource] = []
+    for year in years:
+        data = _download_bulk(year)
+        if data is None:
+            print(f"  bulk {year}: not published yet (skipped)")
+            continue
+        print(f"  bulk {year}: {len(data) / 1e6:.1f} MB")
+        sources.append(BisBulkSpeechSource(_bytes_provider(data)))
+    sources.append(
+        BisSpeechSource(_http_fetcher, pdf_fetcher=_pdf_fetcher, pdf_extractor=pdf_extractor)
+    )
+    return sources
+
+
+def _int_arg(flag: str, default: int) -> int:
+    """Read an integer ``--flag N`` from argv, or the default."""
+    argv = sys.argv[1:]
+    return int(argv[argv.index(flag) + 1]) if flag in argv else default
+
+
+def _years_arg(default: tuple[int, ...]) -> tuple[int, ...]:
+    """Read ``--years 2026,2025`` from argv, or the default."""
+    argv = sys.argv[1:]
+    if "--years" not in argv:
+        return default
+    return tuple(int(part) for part in argv[argv.index("--years") + 1].split(",") if part.strip())
 
 
 def main() -> int:
-    """Build the live app, ingest one pass of real BIS speeches with Gemini, and serve it."""
+    """Build the persistent live app, fill it from the archives and the live feed, and serve it."""
     settings = get_settings()
-    limit = _limit_from_argv(sys.argv[1:])
+    configure_logging(environment=settings.environment)
+    limit = _int_arg("--limit", _DEFAULT_LIMIT)
+    years = _years_arg(_DEFAULT_YEARS)
     engine = create_engine_from_settings(settings)
-    llm = LazyGeminiClient(settings)
+    llm = build_gemini_client(settings)
 
     host_and_db = str(settings.database_url).rsplit("@", 1)[-1]
-    print("Central Bank Tone - live (real Gemini + PostgreSQL, no Docker, no pgvector)")
+    print("Central Bank Tone - live (real Gemini + PostgreSQL, persistent, no Docker, no pgvector)")
     print(f"  model: {settings.gemini_model}; db: {host_and_db}")
-    print(f"  ingesting up to {limit} real BIS speeches (Gemini scores and summarizes each) ...")
 
     app = build_demo_app(
         [],
@@ -100,19 +153,24 @@ def main() -> int:
         llm=llm,
         model_id=settings.gemini_model,
         max_distance=_LIVE_MAX_DISTANCE,
+        persistent_retrieval=True,
     )
     create_immutability_triggers(engine)
-
     services = app.state.services
+
+    print(f"  filling up to {limit} speeches/source (Gemini scores and summarizes each) ...")
+    sources = _build_sources(years, make_pdf_extractor(transcribe=llm.transcribe_image))
     ingested = run_ingestion(
-        [BisSpeechSource(_http_fetcher, pdf_fetcher=_pdf_fetcher)],
+        sources,
         speaker_service=services.speaker_service,
         ingestion_service=services.ingestion_service,
         indexing_service=services.indexing_service,
         limit_per_source=limit,
     )
 
-    print(f"  ingested {ingested} speeches; serving on http://{_HOST}:{_PORT}  (Ctrl+C to stop)")
+    print(
+        f"  ingested {ingested} new speeches; serving on http://{_HOST}:{_PORT}  (Ctrl+C to stop)"
+    )
     uvicorn.run(app, host=_HOST, port=_PORT, log_level="info")
     return 0
 

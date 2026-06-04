@@ -26,6 +26,7 @@ from cbt_core import (
     InMemoryChunkRetriever,
     LlmClient,
     OfflineLlmClient,
+    PersistentChunkRetriever,
     QaService,
     SpeakerService,
     ToneService,
@@ -89,7 +90,11 @@ class _DemoIndexer(IndexingService):
     def index_speech(
         self, speech_id: UUID, *, actor: str = "system", correlation_id: UUID | None = None
     ) -> int:
-        """Chunk, embed, and add a speech's chunks to the in-memory retriever."""
+        """Chunk, embed, and add a speech's chunks to the retriever, skipping ones already indexed."""
+        if self._retriever.has_speech(speech_id):
+            # Idempotent: a persisted speech is already in the (loaded) index, so do not re-embed or
+            # duplicate its chunks on a re-run or restart.
+            return 0
         speech = self._ingestion.get_speech(speech_id, actor=actor, correlation_id=correlation_id)
         chunks = chunk_text(speech.text, max_chars=self._max_chars, overlap=self._overlap)
         embeddings = self._llm.embed(chunks)
@@ -114,6 +119,7 @@ def build_demo_services(
     llm: LlmClient | None = None,
     model_id: str = _DEMO_MODEL_ID,
     max_distance: float = _DEMO_MAX_DISTANCE,
+    persistent_retrieval: bool = False,
 ) -> Services:
     """Build a service container backed by an in-memory retriever and seed it with a corpus.
 
@@ -130,6 +136,9 @@ def build_demo_services(
         llm: The LLM client; the keyless :class:`OfflineLlmClient` if omitted.
         model_id: The model id recorded on each ingested speech.
         max_distance: The retrieval relevance threshold (cosine distance) for question answering.
+        persistent_retrieval: When True, use a :class:`PersistentChunkRetriever` that stores chunk
+            embeddings in the database and reloads them on startup (ADR 0020), so retrieval survives
+            restarts; otherwise an in-process :class:`InMemoryChunkRetriever`.
 
     Returns:
         A fully wired :class:`Services` container.
@@ -140,7 +149,11 @@ def build_demo_services(
     session_factory = make_session_factory(engine)
 
     llm = llm if llm is not None else OfflineLlmClient()
-    retriever = InMemoryChunkRetriever()
+    retriever: InMemoryChunkRetriever = (
+        PersistentChunkRetriever(engine, session_factory)
+        if persistent_retrieval
+        else InMemoryChunkRetriever()
+    )
     speaker_service = SpeakerService(session_factory)
     ingestion = IngestionService(session_factory, llm, model_id=model_id)
     indexer = _DemoIndexer(session_factory, llm, retriever=retriever, ingestion=ingestion)
@@ -178,6 +191,7 @@ def build_demo_app(
     llm: LlmClient | None = None,
     model_id: str = _DEMO_MODEL_ID,
     max_distance: float = _DEMO_MAX_DISTANCE,
+    persistent_retrieval: bool = False,
 ) -> FastAPI:
     """Build the web application over an in-memory retriever, seeded with ``speeches``.
 
@@ -206,5 +220,6 @@ def build_demo_app(
         llm=llm,
         model_id=model_id,
         max_distance=max_distance,
+        persistent_retrieval=persistent_retrieval,
     )
     return app

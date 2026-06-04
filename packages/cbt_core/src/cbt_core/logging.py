@@ -7,7 +7,9 @@ payloads are never logged; log the sha256 of inputs and sizes/counts instead.
 
 from __future__ import annotations
 
+import io
 import logging
+import sys
 from typing import cast
 
 import structlog
@@ -24,6 +26,11 @@ def configure_logging(*, environment: Environment, level: int = logging.INFO) ->
             renders coloured-off key=value lines for human reading.
         level: The minimum level to emit.
     """
+    # Logs carry non-ASCII content (central bankers' names); the console stream may default to a
+    # non-UTF-8 encoding (Windows cp1252), so force UTF-8 output to avoid an encode crash mid-run.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     shared: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,

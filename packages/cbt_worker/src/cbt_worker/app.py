@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -16,8 +17,8 @@ import httpx
 from cbt_core import (
     IndexingService,
     IngestionService,
-    LazyGeminiClient,
     SpeakerService,
+    build_gemini_client,
     configure_logging,
     create_engine_from_settings,
     get_settings,
@@ -25,7 +26,7 @@ from cbt_core import (
 )
 from cbt_worker.runner import run_ingestion
 from cbt_worker.sources.base import SpeechSource
-from cbt_worker.sources.bis import BisSpeechSource
+from cbt_worker.sources.bis import BisSpeechSource, make_pdf_extractor
 from cbt_worker.sources.bis_bulk import BisBulkSpeechSource
 
 _USER_AGENT = "cbt-worker/0.1 (central-bank-tone research; contact: ops@example.org)"
@@ -67,7 +68,7 @@ def _pdf_fetcher(url: str) -> bytes:  # pragma: no cover - network IO, exercised
 
 
 def _select_source(
-    argv: list[str],
+    argv: list[str], pdf_extractor: Callable[[bytes], str]
 ) -> tuple[SpeechSource, int]:  # pragma: no cover - argv wiring, exercised in production only
     """Pick the source and limit from argv: the bulk archive if ``--bulk`` is given, else the RSS."""
     limit = _DEFAULT_LIMIT
@@ -76,7 +77,9 @@ def _select_source(
     if "--bulk" in argv:
         path = Path(argv[argv.index("--bulk") + 1])
         return BisBulkSpeechSource(path.read_bytes), limit
-    return BisSpeechSource(_http_fetcher, pdf_fetcher=_pdf_fetcher), limit
+    return BisSpeechSource(
+        _http_fetcher, pdf_fetcher=_pdf_fetcher, pdf_extractor=pdf_extractor
+    ), limit
 
 
 def main() -> int:  # pragma: no cover - composition root wiring, exercised in production only
@@ -85,8 +88,10 @@ def main() -> int:  # pragma: no cover - composition root wiring, exercised in p
     configure_logging(environment=settings.environment)
     engine = create_engine_from_settings(settings)
     session_factory = make_session_factory(engine)
-    llm = LazyGeminiClient(settings)
-    source, limit = _select_source(sys.argv[1:])
+    llm = build_gemini_client(settings)
+    source, limit = _select_source(
+        sys.argv[1:], make_pdf_extractor(transcribe=llm.transcribe_image)
+    )
 
     run_ingestion(
         [source],

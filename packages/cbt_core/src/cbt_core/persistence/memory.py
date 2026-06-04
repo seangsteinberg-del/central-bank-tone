@@ -34,6 +34,7 @@ class InMemoryChunkRetriever:
         self._speaker_ids: list[UUID] = []
         self._vectors: list[np.ndarray] = []
         self._chunks: list[RetrievedChunk] = []
+        self._speech_ids: set[UUID] = set()
 
     def add(
         self,
@@ -59,6 +60,7 @@ class InMemoryChunkRetriever:
         """
         self._speaker_ids.append(speaker_id)
         self._vectors.append(np.asarray(embedding, dtype=np.float64))
+        self._speech_ids.add(speech_id)
         # The stored distance is a placeholder; it is recomputed per query in _rank.
         self._chunks.append(
             RetrievedChunk(
@@ -70,6 +72,20 @@ class InMemoryChunkRetriever:
                 distance=0.0,
             )
         )
+
+    def has_speech(self, speech_id: UUID) -> bool:
+        """Return whether any chunk of ``speech_id`` is already indexed.
+
+        Lets an indexer skip a speech that is already present (idempotent indexing), which keeps a
+        restart or a re-run from duplicating chunks or re-embedding.
+
+        Args:
+            speech_id: The speech to check.
+
+        Returns:
+            True if the speech has at least one indexed chunk.
+        """
+        return speech_id in self._speech_ids
 
     def search(
         self, speaker_id: UUID, query_embedding: Embedding, top_k: int

@@ -65,18 +65,22 @@ If you have a Gemini key and a local PostgreSQL (no pgvector or Docker needed), 
 the real system online (ADR 0018):
 
 ```bash
-make live             # real Gemini + native PostgreSQL, ingests real BIS speeches, serves :8000
+make live             # real Gemini + native PostgreSQL, fills from the archives + live feed, serves :8000
 ```
 
-It scrapes recent speeches from the live BIS index, pulls each one's full text (the linked PDF when
-it is fuller than the HTML intro, rejecting un-extractable glyph-soup PDFs; ADR 0019), scores tone
-and writes summaries with Gemini, stores speakers and speeches in PostgreSQL behind the append-only
-immutability triggers, and answers natural-language questions grounded in an in-process vector
-index. Set `CBT_DATABASE_URL` (default `postgresql+psycopg://cbt:cbt@localhost:5432/cbt`) and
-`CBT_GEMINI_API_KEY` in `.env` first; pass `--limit N` to control how many speeches a pass ingests.
-The canonical production deployment uses pgvector for a shared, persistent vector index; this local
-setup uses the in-process index instead, so question answering covers the speeches ingested in the
-running process.
+It fills the corpus from two sources, both idempotent: the BIS bulk per-year archives
+(`speeches_<year>.zip`, full text in the CSV) for historical depth across the tracked central banks,
+and the live BIS RSS feed for the newest speeches right up to today. Each speech's **full text** is
+always recovered (ADR 0019): the linked PDF when it is fuller than the HTML intro, and for a PDF no
+text extractor can decode (subset fonts with no Unicode map), the pages are rendered and **Gemini
+transcribes them**. Gemini scores tone and writes summaries; speakers, speeches, and tone history
+persist in PostgreSQL behind the append-only triggers; and chunk embeddings persist in a `bytea`
+column and reload on startup (ADR 0020), so the corpus and its question-answering index **survive
+restarts** and the embedding is computed once. Set `CBT_DATABASE_URL` (default
+`postgresql+psycopg://cbt:cbt@localhost:5432/cbt`) and `CBT_GEMINI_API_KEY` in `.env`; pass
+`--limit N` and `--years 2026,2025,2024` to control the fill (re-running resumes where it left off).
+The canonical production deployment uses pgvector for a shared, indexed vector store; this local
+setup uses the persistent in-process index instead.
 
 ## How it works
 
@@ -107,7 +111,7 @@ packages/
 scripts/      check_imports.py (architecture invariants), train_tone_model.py + eval_tone.py +
               tone_trajectory.py + eval_cross_dataset.py (the evaluation above), run_demo.py
               (the keyless demo), migrate.py.
-docs/         CHANGELOG.md, adr/ (19 decision records), research/ (the evaluation with calibration,
+docs/         CHANGELOG.md, adr/ (20 decision records), research/ (the evaluation with calibration,
               the tone-vs-rates study, the out-of-distribution check, and a state-of-the-art survey).
 .github/      CI: ruff, mypy --strict, the import check, the test suite + coverage gate, pip-audit.
 ```

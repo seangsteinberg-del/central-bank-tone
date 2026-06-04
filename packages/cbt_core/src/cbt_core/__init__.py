@@ -51,6 +51,7 @@ from cbt_core.logging import (
 )
 from cbt_core.persistence import (
     InMemoryChunkRetriever,
+    PersistentChunkRetriever,
     SpeechRetriever,
     create_demo_schema,
     create_engine_from_settings,
@@ -92,6 +93,7 @@ __all__ = [
     "LlmError",
     "MemberMovement",
     "OfflineLlmClient",
+    "PersistentChunkRetriever",
     "QaService",
     "RetrievedChunk",
     "Settings",

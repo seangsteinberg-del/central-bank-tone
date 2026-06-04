@@ -18,6 +18,7 @@ from cbt_core.persistence.engine import (
     make_session_factory,
 )
 from cbt_core.persistence.memory import InMemoryChunkRetriever
+from cbt_core.persistence.persistent import PersistentChunkRetriever
 from cbt_core.persistence.repositories import (
     SpeakerRepository,
     SpeechChunkRepository,
@@ -29,6 +30,7 @@ from cbt_core.persistence.repositories import (
 __all__ = [
     "Base",
     "InMemoryChunkRetriever",
+    "PersistentChunkRetriever",
     "SpeakerRepository",
     "SpeechChunkRepository",
     "SpeechRepository",

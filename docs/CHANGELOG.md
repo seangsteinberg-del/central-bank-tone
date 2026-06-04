@@ -130,13 +130,25 @@ All notable changes to this project are documented in this file. The format foll
   same wiring serves the keyless SQLite demo or the live PostgreSQL + Gemini setup. New
   `cbt_core.create_immutability_triggers` installs the append-only triggers (mirroring migrations
   0001 and 0002) on a database built with `create_demo_schema`.
-- Full speech text from the linked BIS PDF (ADR 0019): the BIS source now fetches each speech's
+- Full speech text from the linked BIS PDF, always (ADR 0019): the BIS source fetches each speech's
   `document.path` PDF and extracts it with `pdfminer.six`, preferring the PDF whenever it is fuller
-  than the short HTML intro, so the full speech is scored rather than an abstract. An un-extractable
-  PDF (subset fonts with no ToUnicode map, which extract as `(cid:...)` glyph soup) is rejected by a
-  legibility check and the HTML body is used instead, so unreadable text is never ingested. Adds an
-  injectable `pdf_fetcher`/`pdf_extractor` on `BisSpeechSource` and the `pdfminer.six` dependency
-  (MIT) to `cbt_worker`.
+  than the short HTML intro. When a PDF is un-extractable (subset fonts with no ToUnicode map, which
+  extract as `(cid:...)` glyph soup), `make_pdf_extractor` renders its pages with `pypdfium2` and
+  has Gemini transcribe them (`GeminiClient.transcribe_image`), recovering the full text by reading
+  the pixels; only if OCR also fails does the body fall back to the HTML intro, so unreadable text
+  is never ingested. Adds an injectable `pdf_fetcher`/`pdf_extractor` on `BisSpeechSource` and the
+  `pdfminer.six`, `pypdfium2`, and `Pillow` dependencies to `cbt_worker`.
+- Persistent retrieval without pgvector (ADR 0020): `cbt_core.PersistentChunkRetriever` stores each
+  chunk and its embedding (packed float32 in a `bytea` column) and reloads them into the in-process
+  cosine index on startup, so a filled corpus and its question-answering index survive restarts and
+  the Gemini embedding is computed once. Indexing is idempotent (a speech already stored is not
+  re-embedded). `build_demo_services` / `build_demo_app` gained a `persistent_retrieval` flag.
+- Historical backfill up to today in the live runner: `scripts/run_live.py` fills from the BIS bulk
+  per-year archives (`speeches_<year>.zip`, full text in the CSV) for depth across the tracked
+  central banks and from the live RSS feed for the newest speeches, both idempotent, so the corpus
+  spans years and runs right up to the current day. `--limit N` and `--years` control the volume.
+- Resilient Gemini calls: `GeminiClient` retries transient errors (HTTP 429 rate limits and 5xx)
+  with exponential backoff, so a large fill is not derailed by the free tier's throttling.
 
 ### Changed
 - Web UI overhaul: the landing page is now a dashboard (thesis hero with the headline finding and a
@@ -188,6 +200,10 @@ All notable changes to this project are documented in this file. The format foll
   treat a dot product as a cosine similarity, so un-normalized vectors made every chunk read as far
   away and question answering wrongly abstained. Normalizing at the source (as the offline client
   already did) restores grounded retrieval; pgvector's cosine operator was unaffected.
+- `configure_logging` forces UTF-8 on the console streams. The Windows console defaults to cp1252,
+  which cannot encode the non-ASCII characters in many central bankers' names, so structured logging
+  crashed mid-ingest and the batch-isolation guard dropped the whole source. Forcing UTF-8 output
+  keeps a large multilingual ingest from aborting.
 - The lexicon no longer double-counts a phrase via its substring or cancels a hawkish phrase
   against a dovish substring (for example "withdraw accommodation").
 - Retrieval (`QaService`) now applies a maximum-distance relevance threshold, so an off-topic

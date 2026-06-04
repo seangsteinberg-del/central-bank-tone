@@ -107,6 +107,20 @@ def test_embed_missing_values_raises_llm_error() -> None:
         _gemini(client).embed(["a"])
 
 
+@pytest.mark.unit
+def test_transcribe_image_returns_the_transcribed_text() -> None:
+    client = _client()
+    client.models.generate_content.return_value.text = "Transcribed speech text."
+    assert _gemini(client).transcribe_image(b"\x89PNG fake-bytes") == "Transcribed speech text."
+
+
+@pytest.mark.unit
+def test_transcribe_image_returns_empty_string_when_blank() -> None:
+    client = _client()
+    client.models.generate_content.return_value.text = None
+    assert _gemini(client).transcribe_image(b"\x89PNG fake-bytes") == ""
+
+
 # --- answer ----------------------------------------------------------------------------------
 
 

@@ -8,9 +8,11 @@ or malformed model response raises :class:`LlmError` rather than fabricating a r
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable, Sequence
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import ValidationError
 
@@ -23,6 +25,50 @@ from cbt_core.logging import get_logger
 from cbt_core.settings import Settings
 
 _logger = get_logger(__name__)
+
+# Transient Gemini errors worth retrying: rate limits (429) and server errors (5xx). A 4xx other
+# than 429 is a request problem and is not retried.
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 6
+_BACKOFF_BASE_SECONDS = 2.0
+
+
+def _with_backoff[T](call: Callable[[], T], *, operation: str) -> T:
+    """Call ``call``, retrying transient Gemini errors with exponential backoff.
+
+    A large ingestion makes many Gemini calls and the free tier rate-limits (HTTP 429), so a single
+    throttled call is retried rather than failing the speech. A non-retryable error (a 4xx other
+    than 429) is raised immediately.
+
+    Args:
+        call: The zero-argument Gemini call to make.
+        operation: A short label for logging (for example ``"analyze_tone"``).
+
+    Returns:
+        The call's result.
+
+    Raises:
+        google.genai.errors.APIError: If the call keeps failing after the last attempt, or fails
+            with a non-retryable status.
+    """
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            return call()
+        except genai_errors.APIError as exc:
+            last_attempt = attempt == _MAX_ATTEMPTS - 1
+            if exc.code not in _RETRYABLE_STATUS or last_attempt:
+                raise
+            delay = _BACKOFF_BASE_SECONDS * (2**attempt)
+            _logger.warning(
+                "gemini_retry",
+                operation=operation,
+                status=exc.code,
+                attempt=attempt + 1,
+                delay=delay,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable: the loop returns or raises on the final attempt")
+
 
 # An explicit response schema for structured tone output. We do NOT hand Gemini the Pydantic
 # model directly: ToneAnalysis uses ``extra="forbid"``, which makes Pydantic emit
@@ -57,6 +103,11 @@ _ANSWER_INSTRUCTION = (
     "You answer questions about a central bank speaker using only the provided excerpts from "
     "their speeches. Ground every statement in the excerpts and do not use outside knowledge. "
     "If the excerpts do not contain the answer, say so plainly."
+)
+
+_TRANSCRIBE_INSTRUCTION = (
+    "Transcribe the speech text in this page image verbatim. Output only the transcribed text, "
+    "in reading order, with no commentary, headers, footers, or page numbers."
 )
 
 
@@ -108,17 +159,20 @@ class GeminiClient:
         Raises:
             LlmError: If Gemini returns no parsed result or one of the wrong shape.
         """
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=speech_text,
-            config=types.GenerateContentConfig(
-                system_instruction=_SYSTEM_INSTRUCTION,
-                response_mime_type="application/json",
-                response_schema=_TONE_RESPONSE_SCHEMA,
-                # Greedy decoding so the tone score is reproducible: the same speech scores the
-                # same way across runs, which a non-zero temperature would not guarantee.
-                temperature=0.0,
+        response = _with_backoff(
+            lambda: self._client.models.generate_content(
+                model=self._model,
+                contents=speech_text,
+                config=types.GenerateContentConfig(
+                    system_instruction=_SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=_TONE_RESPONSE_SCHEMA,
+                    # Greedy decoding so the tone score is reproducible: the same speech scores the
+                    # same way across runs, which a non-zero temperature would not guarantee.
+                    temperature=0.0,
+                ),
             ),
+            operation="analyze_tone",
         )
         text = response.text
         if not text:
@@ -154,12 +208,15 @@ class GeminiClient:
         """
         if not texts:
             return []
-        response = self._client.models.embed_content(
-            model=self._embedding_model,
-            # google-genai types `contents` as an invariant list union, so a plain list[str]
-            # is rejected by mypy though it is a valid runtime input.
-            contents=list(texts),  # type: ignore[arg-type]
-            config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
+        response = _with_backoff(
+            lambda: self._client.models.embed_content(
+                model=self._embedding_model,
+                # google-genai types `contents` as an invariant list union, so a plain list[str]
+                # is rejected by mypy though it is a valid runtime input.
+                contents=list(texts),  # type: ignore[arg-type]
+                config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
+            ),
+            operation="embed",
         )
         embeddings = response.embeddings
         if embeddings is None or len(embeddings) != len(texts):
@@ -187,16 +244,45 @@ class GeminiClient:
         context = "\n\n".join(
             f"[Speech {chunk.speech_id} | {chunk.title}]\n{chunk.text}" for chunk in chunks
         )
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=f"Question: {question}\n\nExcerpts:\n{context}",
-            config=types.GenerateContentConfig(
-                system_instruction=_ANSWER_INSTRUCTION, temperature=0.2
+        response = _with_backoff(
+            lambda: self._client.models.generate_content(
+                model=self._model,
+                contents=f"Question: {question}\n\nExcerpts:\n{context}",
+                config=types.GenerateContentConfig(
+                    system_instruction=_ANSWER_INSTRUCTION, temperature=0.2
+                ),
             ),
+            operation="answer",
         )
         if not response.text:
             raise LlmError("Gemini returned an empty answer")
         return response.text
+
+    def transcribe_image(self, image: bytes, *, mime_type: str = "image/png") -> str:
+        """Transcribe the text in a page image with Gemini vision.
+
+        Used to recover a speech's text from a PDF that no text extractor can decode (subset fonts
+        with no ToUnicode map), by rendering its pages and reading the pixels (ADR 0019).
+
+        Args:
+            image: The page image bytes.
+            mime_type: The image mime type (``image/png`` by default).
+
+        Returns:
+            The transcribed text, or an empty string if the page held none.
+        """
+        # google-genai types a multimodal `contents` list as an invariant union; a list of a Part
+        # and a str is a valid runtime input but mypy infers list[object], so the ignore stands.
+        contents = [types.Part.from_bytes(data=image, mime_type=mime_type), _TRANSCRIBE_INSTRUCTION]
+        response = _with_backoff(
+            lambda: self._client.models.generate_content(
+                model=self._model,
+                contents=contents,  # type: ignore[arg-type]
+                config=types.GenerateContentConfig(temperature=0.0),
+            ),
+            operation="transcribe_image",
+        )
+        return response.text or ""
 
 
 def build_gemini_client(settings: Settings) -> GeminiClient:

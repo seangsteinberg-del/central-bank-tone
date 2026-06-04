@@ -20,6 +20,7 @@ from cbt_worker.sources.bis import (
     _clean_title,
     _extract_pdf_text,
     _looks_like_text,
+    make_pdf_extractor,
 )
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -262,3 +263,32 @@ def test_extract_pdf_text_reads_a_real_pdf() -> None:
 )
 def test_looks_like_text_rejects_glyph_soup(body: str, legible: bool) -> None:
     assert _looks_like_text(body) is legible
+
+
+@pytest.mark.unit
+def test_make_pdf_extractor_uses_pdfminer_when_legible() -> None:
+    data = (_FIXTURES / "sample_speech.pdf").read_bytes()
+    transcribed: list[bytes] = []
+
+    def transcribe(png: bytes) -> str:
+        transcribed.append(png)
+        return "OCR"
+
+    text = make_pdf_extractor(transcribe=transcribe)(data)
+    assert "Full speech body" in text  # the legible pdfminer text is used
+    assert transcribed == []  # OCR is not invoked for a legible PDF
+
+
+@pytest.mark.unit
+def test_make_pdf_extractor_falls_back_to_ocr_for_glyph_soup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # pdfminer yields glyph soup, so the extractor renders the pages and transcribes them instead.
+    monkeypatch.setattr(
+        "cbt_worker.sources.bis._extract_pdf_text", lambda _data: "(cid:0)(cid:1)(cid:2) " * 30
+    )
+    monkeypatch.setattr(
+        "cbt_worker.sources.bis._render_pdf_pages", lambda _data: [b"page-one", b"page-two"]
+    )
+    result = make_pdf_extractor(transcribe=lambda png: png.decode())(b"%PDF-fake")
+    assert result == "page-one page-two"
