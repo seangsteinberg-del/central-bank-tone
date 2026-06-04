@@ -59,9 +59,19 @@ production analogue of the zero-shot-LLM tier; a fine-tuned PLM would be the way
    labels drops the classifier to 32.1% / macro-F1 0.318, below that corpus's dovish-skewed majority
    baseline. An honest negative result: the signal is largely speech-corpus-specific
    (`docs/research/cross-dataset-eval.md`).
-4. **A fine-tuned PLM tier** (e.g. finBERT, Apache-2.0, behind the existing `LlmClient` boundary) to close the
-   gap from ~0.58 toward the ~0.72 transformer ceiling, if a heavier runtime dependency is acceptable.
-5. **Enrich the lexicon** from the MIT FOMCAnalysis word lists (curated, not copied wholesale).
+4. **Enrich the lexicon.** Attempted and measured, not shipped. Adding ~35 high-precision hawkish and
+   dovish terms (authored, not copied) lifted the lexicon's *train* macro-F1 (0.392 -> 0.402) but left
+   the held-out test essentially unchanged (accuracy 51.8% -> 51.4%, macro-F1 0.339 -> 0.340) and did
+   not raise its firing rate (~13% of test sentences either way): the added terms, several of them
+   post-2013 vocabulary (`quantitative tightening`, `higher for longer`), are simply rare on the
+   1996-2022 benchmark. Iterating the term list against the test split to find a subset that helps
+   would be exactly the test-set leakage the evaluation forbids, so the lexicon is left as the
+   validated, transparent cross-check. A future lexicon change should be validated on a separate
+   held-out set, not this one.
+5. **A fine-tuned PLM tier** (e.g. finBERT, Apache-2.0, behind the existing `LlmClient` boundary) to close
+   the gap from ~0.58 toward the ~0.72 transformer ceiling, if a heavier runtime dependency is acceptable.
+   This is now the highest-value remaining step; it would also be the right answer to the weak op-fed
+   transfer (step 3).
 
 All of these preserve the architecture (the scorer/boundary seams already exist) and the licensing rules: the
 CC-BY-NC benchmarks stay offline-evaluation-only; production stays on the self-authored lexicon plus the LLM.
