@@ -141,6 +141,13 @@ All notable changes to this project are documented in this file. The format foll
   and comparable across speeches.
 
 ### Fixed
+- The live Gemini tone path returned HTTP 400. `analyze_tone` passed the `ToneAnalysis` Pydantic
+  model directly as the Gemini `response_schema`; because the model uses `extra="forbid"`, Pydantic
+  emits `additionalProperties`, which Gemini's `response_schema` rejects. The client now sends an
+  explicit Gemini-compatible schema and validates the JSON response back into `ToneAnalysis`, so the
+  domain model's strict validation is unchanged. Verified end to end against the live API (the bug
+  was invisible to CI, where live calls are gated out). `embed` and `answer` were confirmed working
+  against the live API in the same pass.
 - The BIS scraper was rewritten against the live site (a React app): the listing now comes from the
   RSS feed and the speech body from the `data-react-props` JSON, with institution read from the
   affiliation clause (not the venue), plus fetcher retry/backoff. The previous selectors could not

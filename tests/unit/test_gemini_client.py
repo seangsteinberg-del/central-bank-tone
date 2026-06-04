@@ -45,17 +45,19 @@ def _gemini(client: MagicMock) -> GeminiClient:
 @pytest.mark.unit
 def test_analyze_tone_returns_the_parsed_analysis() -> None:
     client = _client()
-    client.models.generate_content.return_value.parsed = _ANALYSIS
+    # Gemini returns JSON text (an explicit schema, not the Pydantic model, is sent to avoid the
+    # additionalProperties the model's extra="forbid" emits); the client validates it back.
+    client.models.generate_content.return_value.text = _ANALYSIS.model_dump_json()
     result = _gemini(client).analyze_tone("a speech")
     assert result == _ANALYSIS
     assert client.models.generate_content.call_args.kwargs["model"] == "gemini-2.5-flash"
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("parsed", [None, {"summary": "x"}, "not a model"])
-def test_analyze_tone_raises_llm_error_on_unparseable_response(parsed: object) -> None:
+@pytest.mark.parametrize("text", [None, "", "not json", '{"summary": "x"}'])
+def test_analyze_tone_raises_llm_error_on_unparseable_response(text: object) -> None:
     client = _client()
-    client.models.generate_content.return_value.parsed = parsed
+    client.models.generate_content.return_value.text = text
     with pytest.raises(LlmError):
         _gemini(client).analyze_tone("a speech")
 

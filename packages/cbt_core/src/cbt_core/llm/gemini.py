@@ -11,15 +11,34 @@ from collections.abc import Callable, Sequence
 
 from google import genai
 from google.genai import types
+from pydantic import ValidationError
 
 from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import RetrievedChunk
+from cbt_core.domain.tone import ToneLabel
 from cbt_core.exceptions import LlmError
 from cbt_core.llm.client import EMBEDDING_DIM, Embedding, LlmClient
 from cbt_core.logging import get_logger
 from cbt_core.settings import Settings
 
 _logger = get_logger(__name__)
+
+# An explicit response schema for structured tone output. We do NOT hand Gemini the Pydantic
+# model directly: ToneAnalysis uses ``extra="forbid"``, which makes Pydantic emit
+# ``additionalProperties`` in its JSON schema, and the Gemini ``response_schema`` field rejects
+# that (HTTP 400). This schema is the Gemini-compatible subset; the response JSON is then
+# validated back into ToneAnalysis, so the domain model's strict validation still applies.
+_TONE_RESPONSE_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "summary": types.Schema(type=types.Type.STRING),
+        "tone": types.Schema(type=types.Type.STRING, enum=[label.value for label in ToneLabel]),
+        "score": types.Schema(type=types.Type.NUMBER),
+        "rationale": types.Schema(type=types.Type.STRING),
+    },
+    required=["summary", "tone", "score", "rationale"],
+    property_ordering=["summary", "tone", "score", "rationale"],
+)
 
 _SYSTEM_INSTRUCTION = (
     "You are a central bank communications analyst. Read the speech and return a concise "
@@ -74,16 +93,23 @@ class GeminiClient:
             config=types.GenerateContentConfig(
                 system_instruction=_SYSTEM_INSTRUCTION,
                 response_mime_type="application/json",
-                response_schema=ToneAnalysis,
+                response_schema=_TONE_RESPONSE_SCHEMA,
                 # Greedy decoding so the tone score is reproducible: the same speech scores the
                 # same way across runs, which a non-zero temperature would not guarantee.
                 temperature=0.0,
             ),
         )
-        parsed = response.parsed
-        if not isinstance(parsed, ToneAnalysis):
-            _logger.error("gemini_unparseable_response", model=self._model)
-            raise LlmError("Gemini returned no parseable ToneAnalysis")
+        text = response.text
+        if not text:
+            _logger.error("gemini_empty_response", model=self._model)
+            raise LlmError("Gemini returned an empty tone analysis")
+        try:
+            parsed = ToneAnalysis.model_validate_json(text)
+        except ValidationError as exc:
+            # Deliberately no exc_info: the ValidationError detail echoes the model's response,
+            # and we do not log external payloads (CLAUDE.md section 7).
+            _logger.error("gemini_unparseable_response", model=self._model)  # noqa: TRY400
+            raise LlmError("Gemini returned an unparseable ToneAnalysis") from exc
         _logger.info(
             "gemini_tone_analyzed",
             model=self._model,
