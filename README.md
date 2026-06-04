@@ -52,8 +52,11 @@ make demo-lite        # seeds the real FOMC corpus, scores it offline, serves th
 
 This builds a populated demo on SQLite with the supervised classifier and an offline retriever: a
 dashboard with per-Chair tone trajectories, a methodology page with the measured accuracy, and
-working natural-language search over the corpus, all with no Gemini key and no database. (Run
-`make eval` once first to fetch the FOMC corpus; otherwise it falls back to a small illustrative set.)
+working natural-language search over the corpus, all with no Gemini key and no database. Click any
+speech for its detail page: a concise summary and, as of that speech, how far each member of the
+committee has shifted in tone since their previous speech and how the committee moved overall (ADR
+0015). (Run `make eval` once first to fetch the FOMC corpus; otherwise it falls back to a small
+illustrative set.)
 
 ## How it works
 
@@ -77,13 +80,15 @@ packages/
   cbt_core/   domain heart: schema spine, services, persistence, the LLM boundary, the lexicon,
               the supervised classifier, and the offline client. Imports no adapter (machine-checked).
   cbt_api/    FastAPI JSON adapter. Depends on cbt_core only.
-  cbt_worker/ BIS speeches scraper (RSS feed + speech bodies). Depends on cbt_core only.
-  cbt_web/    server-rendered (Jinja + htmx) web UI: dashboard, methodology page, SVG tone charts,
-              and a keyless demo builder. Depends on cbt_core only.
+  cbt_worker/ BIS speech sources behind one protocol: the RSS scraper (incremental) and a
+              bulk-archive reader (backfill from the BIS bulk ZIP). Depends on cbt_core only.
+  cbt_web/    server-rendered (Jinja + htmx) web UI: dashboard, per-speech committee-movement view,
+              methodology page, SVG tone charts, and a keyless demo builder. Depends on cbt_core only.
 scripts/      check_imports.py (architecture invariants), train_tone_model.py + eval_tone.py +
-              tone_trajectory.py (the evaluation above), run_demo.py (the keyless demo), migrate.py.
-docs/         CHANGELOG.md, adr/ (14 decision records), research/ (the evaluation, the tone-vs-rates
-              study, and a state-of-the-art survey with licensing).
+              tone_trajectory.py + eval_cross_dataset.py (the evaluation above), run_demo.py
+              (the keyless demo), migrate.py.
+docs/         CHANGELOG.md, adr/ (16 decision records), research/ (the evaluation with calibration,
+              the tone-vs-rates study, the out-of-distribution check, and a state-of-the-art survey).
 .github/      CI: ruff, mypy --strict, the import check, the test suite + coverage gate, pip-audit.
 ```
 
