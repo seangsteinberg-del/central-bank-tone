@@ -219,29 +219,49 @@ class BisSpeechSource:
         for entry in entries:
             if len(results) >= limit:
                 break
-            bank = central_bank_from(entry.institution)
-            if bank is None:
-                _logger.info("bis_speech_skipped_untracked", institution=entry.institution)
+            try:
+                speech = self._scrape_entry(entry)
+            except Exception:
+                # Batch isolation: a single entry's detail or PDF fetch failing (a transient HTTP
+                # error, a server rate-limiting the scraper, or a malformed page) skips that speech
+                # and continues, rather than aborting the whole feed and losing every later, fresher
+                # speech (the same pattern as the runner; CLAUDE.md section 3).
+                _logger.exception("bis_speech_scrape_failed", url=entry.url)
                 continue
-            html_text, pdf_path = self._parse_detail(self._fetcher(entry.url))
-            text = self._full_text(html_text, pdf_path)
-            word_count = len(text.split())
-            if word_count < _MIN_BODY_WORDS:
-                # An empty page or an unreadable stub: too little prose to score a real tone.
-                _logger.warning("bis_speech_skipped_short", url=entry.url, words=word_count)
-                continue
-            results.append(
-                ScrapedSpeech(
-                    speaker_name=entry.speaker,
-                    central_bank=bank,
-                    role=entry.role,
-                    title=entry.title,
-                    url=entry.url,
-                    delivered_at=entry.delivered_at,
-                    text=text,
-                )
-            )
+            if speech is not None:
+                results.append(speech)
         return results
+
+    def _scrape_entry(self, entry: _ListingEntry) -> ScrapedSpeech | None:
+        """Fetch and assemble one listing entry into a scraped speech.
+
+        Args:
+            entry: A parsed RSS listing entry.
+
+        Returns:
+            The scraped speech, or ``None`` if the entry is from an untracked institution or its
+            recovered body is too short to score a meaningful tone.
+        """
+        bank = central_bank_from(entry.institution)
+        if bank is None:
+            _logger.info("bis_speech_skipped_untracked", institution=entry.institution)
+            return None
+        html_text, pdf_path = self._parse_detail(self._fetcher(entry.url))
+        text = self._full_text(html_text, pdf_path)
+        word_count = len(text.split())
+        if word_count < _MIN_BODY_WORDS:
+            # An empty page or an unreadable stub: too little prose to score a real tone.
+            _logger.warning("bis_speech_skipped_short", url=entry.url, words=word_count)
+            return None
+        return ScrapedSpeech(
+            speaker_name=entry.speaker,
+            central_bank=bank,
+            role=entry.role,
+            title=entry.title,
+            url=entry.url,
+            delivered_at=entry.delivered_at,
+            text=text,
+        )
 
     def _parse_listing(self, rss: str) -> list[_ListingEntry]:
         try:

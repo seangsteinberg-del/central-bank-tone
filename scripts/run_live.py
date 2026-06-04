@@ -19,7 +19,19 @@ takes a while; re-running resumes where it left off.
 
 Usage::
 
-    uv run python scripts/run_live.py [--limit N] [--years 2026,2025,2024]
+    uv run python scripts/run_live.py [--limit N] [--years ...] [--no-serve] [--no-ocr] [--serve-only]
+
+``--serve-only`` skips the fill and just serves the existing corpus (use it to restart the UI on
+new code while a separate ``--no-serve`` fill keeps writing to the same database).
+
+``--no-serve`` runs the fill and exits without serving, so a long backfill can run alongside an
+already-serving instance (it writes to the same database); restart the server afterward to reload
+the question-answering index over the enlarged corpus.
+
+``--no-ocr`` disables the Gemini-vision OCR fallback for un-extractable (CID-font) PDFs, so a bulk
+fill never stalls on the vision endpoint: such a PDF degrades to its HTML intro (or is skipped if
+that is too short) instead. Bulk-archive speeches carry their full text in the CSV and never use
+OCR regardless. Leave OCR on for a small, recency-focused run when the vision endpoint is healthy.
 """
 
 from __future__ import annotations
@@ -105,8 +117,16 @@ def _download_bulk(year: int) -> bytes | None:
 def _build_sources(
     years: tuple[int, ...], pdf_extractor: Callable[[bytes], str]
 ) -> list[SpeechSource]:
-    """Build the historical bulk sources for ``years`` plus the live RSS feed for the latest."""
-    sources: list[SpeechSource] = []
+    """Build the live RSS feed (freshest, fetched first) then the historical bulk archives.
+
+    The RSS source runs first so the most recent speeches, right up to today, land before the long
+    rate-limited bulk backfill can exhaust the free Gemini tier's daily quota; the bulk archives then
+    fill the history, newest year first. Every source is idempotent (deduplicated by source hash), so
+    the ordering only affects which speeches land first under a quota cap, never correctness.
+    """
+    sources: list[SpeechSource] = [
+        BisSpeechSource(_http_fetcher, pdf_fetcher=_pdf_fetcher, pdf_extractor=pdf_extractor)
+    ]
     for year in years:
         data = _download_bulk(year)
         if data is None:
@@ -114,9 +134,6 @@ def _build_sources(
             continue
         print(f"  bulk {year}: {len(data) / 1e6:.1f} MB")
         sources.append(BisBulkSpeechSource(_bytes_provider(data)))
-    sources.append(
-        BisSpeechSource(_http_fetcher, pdf_fetcher=_pdf_fetcher, pdf_extractor=pdf_extractor)
-    )
     return sources
 
 
@@ -156,21 +173,26 @@ def main() -> int:
         persistent_retrieval=True,
     )
     create_immutability_triggers(engine)
-    services = app.state.services
 
-    print(f"  filling up to {limit} speeches/source (Gemini scores and summarizes each) ...")
-    sources = _build_sources(years, make_pdf_extractor(transcribe=llm.transcribe_image))
-    ingested = run_ingestion(
-        sources,
-        speaker_service=services.speaker_service,
-        ingestion_service=services.ingestion_service,
-        indexing_service=services.indexing_service,
-        limit_per_source=limit,
-    )
+    if "--serve-only" not in sys.argv:
+        services = app.state.services
+        print(f"  filling up to {limit} speeches/source (Gemini scores and summarizes each) ...")
+        transcribe = None if "--no-ocr" in sys.argv else llm.transcribe_image
+        sources = _build_sources(years, make_pdf_extractor(transcribe=transcribe))
+        ingested = run_ingestion(
+            sources,
+            speaker_service=services.speaker_service,
+            ingestion_service=services.ingestion_service,
+            indexing_service=services.indexing_service,
+            limit_per_source=limit,
+        )
+        if "--no-serve" in sys.argv:
+            print(f"  ingested {ingested} new speeches; --no-serve set, not serving")
+            return 0
+        print(f"  ingested {ingested} new speeches; serving on http://{_HOST}:{_PORT}")
+    else:
+        print(f"  --serve-only: serving the existing corpus on http://{_HOST}:{_PORT}")
 
-    print(
-        f"  ingested {ingested} new speeches; serving on http://{_HOST}:{_PORT}  (Ctrl+C to stop)"
-    )
     uvicorn.run(app, host=_HOST, port=_PORT, log_level="info")
     return 0
 

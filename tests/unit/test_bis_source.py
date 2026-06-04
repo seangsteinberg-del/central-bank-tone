@@ -146,6 +146,22 @@ def test_fetch_skips_speeches_with_an_empty_body() -> None:
 
 
 @pytest.mark.unit
+def test_fetch_isolates_a_failing_detail_fetch_and_keeps_the_rest() -> None:
+    # A transient error fetching one entry's detail page (a server rate-limiting the scraper) must
+    # skip only that speech, never abort the feed and lose every later, fresher speech. This is the
+    # regression that left the corpus short of today: one failed fetch killed the whole RSS source.
+    def fetch(url: str) -> str:
+        if url == "https://test.example/review/r1.htm":
+            raise RuntimeError("transient HTTP 503 from the scraped site")
+        return _pages()[url]
+
+    speeches = BisSpeechSource(fetch, base_url=_BASE, listing_url=_LISTING_URL).fetch(limit=10)
+    assert [s.speaker_name for s in speeches] == [
+        "Max Mustermann"
+    ]  # Jane Doe skipped, feed survives
+
+
+@pytest.mark.unit
 def test_fetch_returns_empty_on_unparseable_feed() -> None:
     fetch: Callable[[str], str] = lambda _url: "<rdf:RDF><item>unclosed"  # noqa: E731
     assert BisSpeechSource(fetch, listing_url=_LISTING_URL).fetch(limit=5) == []
