@@ -10,50 +10,77 @@ language, so that signal is measurable and inspectable.
 ## Does it work? (measured, not asserted)
 
 The tone scorers are evaluated against the annotated FOMC benchmark ("Trillion Dollar Words", ACL
-2023) and the resulting series is checked against actual policy. Both runs are reproducible and
-need no API key (`make eval`):
+2023) and the resulting series is checked against actual policy. Everything here is reproducible
+with no API key (`make eval`).
 
-**Tone tracks the policy cycle.** Aggregate FOMC net-hawkishness by year vs the effective fed
-funds rate, 1996-2022 (deterministic lexicon): correlation **+0.39** with the same-year change in
-the rate, **+0.30** with the level, ~0 as a next-year lead. The hawkish 2004-06 and 2022 and dovish
-2008-09 and 2020 episodes are visible.
+**Accuracy against human labels.** On the held-out FOMC test split, head to head:
 
-![FOMC tone vs the fed funds rate](docs/research/tone-vs-rates.png)
+| scorer | accuracy | macro-F1 |
+|---|---|---|
+| majority-class baseline | 49.8% | 0.222 |
+| deterministic lexicon | 51.8% | 0.339 |
+| **supervised classifier** (TF-IDF + logistic regression) | **59.9%** | **0.582** |
 
-**Accuracy against human labels.** On the held-out FOMC test split the deterministic lexicon scores
-**51.8%** accuracy vs a 49.8% majority-class baseline (macro-F1 0.339), firing on ~12% of sentences
-- a transparent, high-precision floor, not the production signal. Full numbers and the confusion
-matrix: [docs/research/tone-evaluation.md](docs/research/tone-evaluation.md). The Gemini path scores
-head-to-head on the same benchmark once a key is set (`make eval` then
+The supervised classifier (pure numpy, trained offline, no key) nearly doubles the lexicon's
+macro-F1, and the gain is statistically significant: McNemar **p = 0.012**, bootstrap 95% CI on the
+accuracy gap **[+2.2%, +14.1%]** (excludes zero). For context, fine-tuned RoBERTa-large reaches ~0.72
+weighted F1 on this benchmark and zero-shot LLMs ~0.59 F1, so a transparent linear model at 0.58
+macro-F1 is a credible floor in the zero-shot-LLM range, not a state-of-the-art claim (see
+[docs/research/state-of-the-art.md](docs/research/state-of-the-art.md)). Full numbers and the
+confusion matrices: [docs/research/tone-evaluation.md](docs/research/tone-evaluation.md).
+
+**Tone tracks the policy cycle.** Annual FOMC tone vs the fed funds rate and the 2- and 10-year
+Treasury yields (FRED), 1996-2022. Regressing the same-year change in the 2-year yield on annual
+tone gives a slope of **+6.89** (bootstrap 95% CI **[+2.31, +14.22]**, excludes zero; Pearson
+r +0.35): in years the FOMC sounded more hawkish, the market repriced near-term policy higher within
+the same year. This is a descriptive, same-year link, not a trading signal (the next-year lead terms
+are ~0). Details: [docs/research/tone-vs-rates.md](docs/research/tone-vs-rates.md).
+
+![FOMC tone vs policy rates](docs/research/tone-vs-rates.png)
+
+The Gemini path scores head-to-head on the same benchmark once a key is set (`make eval` then
 `uv run python scripts/eval_tone.py --with-gemini`).
 
-These are honest baselines, not claims of alpha. The point is that the signal is measured and
-behaves in the direction the literature predicts; the LLM and per-speaker resolution add finer
-signal than this floor.
+## See it running with no key and no Docker
+
+```bash
+make demo-lite        # seeds the real FOMC corpus, scores it offline, serves the UI at :8000
+```
+
+This builds a populated demo on SQLite with the supervised classifier and an offline retriever: a
+dashboard with per-Chair tone trajectories, a methodology page with the measured accuracy, and
+working natural-language search over the corpus, all with no Gemini key and no database. (Run
+`make eval` once first to fetch the FOMC corpus; otherwise it falls back to a small illustrative set.)
 
 ## How it works
 
 Scrape a speech (the BIS speeches feed aggregates every tracked central bank) -> validate it
-against the schema spine (the registry of banks and tone labels) -> score tone two ways: a **Gemini**
-LLM-as-judge (summary, tone, a calibrated `[-1, 1]` score at temperature 0) and a **deterministic
-lexicon** cross-check; a large disagreement flags the speech for review -> persist an immutable
-speech and an append-only tone observation -> chunk and embed into pgvector -> answer
-natural-language questions about one speaker or the whole corpus, grounded in retrieved excerpts
-with citations, abstaining when nothing relevant is found.
+against the schema spine (the registry of banks and tone labels) -> score tone with three scorers: a
+**Gemini** LLM-as-judge (summary, tone, a calibrated `[-1, 1]` score at temperature 0), a
+**supervised classifier** (TF-IDF + logistic regression, trained offline), and a **deterministic
+lexicon**; the lexicon is a transparent cross-check and a large disagreement flags the speech for
+review -> persist an immutable speech and an append-only tone observation -> chunk and embed into
+pgvector -> answer natural-language questions about one speaker or the whole corpus, grounded in
+retrieved excerpts with citations, abstaining when nothing relevant is found.
+
+There are two interchangeable implementations behind the LLM boundary: the **Gemini** client
+(production) and a keyless **offline** client (classifier tone, hashing embeddings, extractive
+answers) that powers `make demo-lite` with no key and no database.
 
 ## Layout
 
 ```
 packages/
-  cbt_core/   domain heart: schema spine, services, persistence, the LLM boundary, the lexicon.
-              Imports no adapter; the one-way dependency is machine-checked.
+  cbt_core/   domain heart: schema spine, services, persistence, the LLM boundary, the lexicon,
+              the supervised classifier, and the offline client. Imports no adapter (machine-checked).
   cbt_api/    FastAPI JSON adapter. Depends on cbt_core only.
   cbt_worker/ BIS speeches scraper (RSS feed + speech bodies). Depends on cbt_core only.
-  cbt_web/    server-rendered (Jinja + htmx) web UI. Depends on cbt_core only.
-scripts/      check_imports.py (architecture invariants), eval_tone.py + tone_trajectory.py
-              (the evaluation above), migrate.py.
-docs/         CHANGELOG.md, adr/ (12 decision records), research/ (the evaluation + the prior-art
-              survey with licensing).
+  cbt_web/    server-rendered (Jinja + htmx) web UI: dashboard, methodology page, SVG tone charts,
+              and a keyless demo builder. Depends on cbt_core only.
+scripts/      check_imports.py (architecture invariants), train_tone_model.py + eval_tone.py +
+              tone_trajectory.py (the evaluation above), run_demo.py (the keyless demo), migrate.py.
+docs/         CHANGELOG.md, adr/ (14 decision records), research/ (the evaluation, the tone-vs-rates
+              study, and a state-of-the-art survey with licensing).
 .github/      CI: ruff, mypy --strict, the import check, the test suite + coverage gate, pip-audit.
 ```
 
