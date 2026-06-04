@@ -81,6 +81,12 @@ All notable changes to this project are documented in this file. The format foll
   and attributed to the sitting Fed Chair, so the whole UI - per-Chair tone trajectories, the
   cross-check markers, and natural-language search - runs populated with no Gemini key and no
   Postgres. Adds `IngestionService.get_speech`.
+- Classifier calibration in the evaluation: `scripts/eval_tone.py` now reports the supervised
+  classifier's expected and maximum calibration error (ECE 0.142, MCE 0.276), a multiclass Brier
+  score, and the direction of the miscalibration, with a reliability diagram and confidence
+  histogram (`docs/research/tone-reliability.png`). The model is under-confident on this benchmark
+  (its predicted-class probability is a conservative lower bound on its accuracy); the methodology
+  page surfaces this.
 - Stronger thesis test: `scripts/tone_trajectory.py` now builds both a lexicon and a classifier
   annual tone index and relates them to three FRED series (the fed funds rate and the 2-year and
   10-year Treasury yields), reporting every correlation with a bootstrap 95% CI plus an OLS

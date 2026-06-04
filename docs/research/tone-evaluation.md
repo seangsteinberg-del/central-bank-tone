@@ -81,6 +81,34 @@ disagree on. The classifier is right and the lexicon wrong on 141; the reverse o
 
 ![Confusion matrices](tone-confusion-matrix.png)
 
+## Are the classifier's confidences trustworthy?
+
+Accuracy means little if a model is sure when it is wrong. Binning the supervised classifier's test
+predictions by confidence (the predicted class's probability) measures whether a stated confidence
+matches the observed hit-rate. For a three-class softmax the confidence cannot fall below 1/3, so
+the low bins are empty by construction.
+
+- **Expected calibration error (ECE): 0.142** (support-weighted mean absolute gap
+  between confidence and accuracy; lower is better).
+- **Maximum calibration error (MCE): 0.276** (worst populated bin).
+- **Mean confidence minus accuracy: -0.142** (the direction of the
+  miscalibration).
+- **Brier score: 0.560** (mean squared error of the full predicted distribution).
+
+| confidence bin | n | mean confidence | accuracy | gap (conf - acc) |
+|---|---|---|---|---|
+| 0.3-0.4 | 123 | 0.375 | 0.407 | -0.031 |
+| 0.4-0.5 | 253 | 0.443 | 0.581 | -0.138 |
+| 0.5-0.6 | 88 | 0.543 | 0.818 | -0.276 |
+| 0.6-0.7 | 31 | 0.641 | 0.871 | -0.230 |
+| 0.7-0.8 | 1 | 0.749 | 1.000 | -0.251 |
+
+The gap is confidence minus accuracy, so a negative gap is under-confidence and a positive gap is
+over-confidence. This model is under-confident: in every populated bin it is right more often than its probability claims, so its confidence is a conservative lower bound on its accuracy. This is common for a three-class softmax, which splits probability mass across the classes. The reliability diagram (left) plots accuracy against
+confidence with the gap shaded; the histogram (right) shows how confidence is distributed.
+
+![Reliability diagram](tone-reliability.png)
+
 ## Honest reading
 
 The supervised classifier (ADR 0013) is the strongest offline scorer: it learns from the whole

@@ -128,6 +128,8 @@ def test_methodology_page_reports_measured_accuracy(web_client: TestClient) -> N
     assert "Macro-F1" in response.text
     assert "59.9%" in response.text  # the supervised classifier's measured accuracy
     assert "/static/img/tone-vs-rates.png" in response.text  # the embedded research chart
+    assert "ECE = 0.142" in response.text  # the calibration metric is surfaced
+    assert "/static/img/tone-reliability.png" in response.text  # the reliability diagram
 
 
 def _ingest_named(
@@ -292,7 +294,12 @@ def test_admin_page_renders_forms(web_client: TestClient) -> None:
 @pytest.mark.web
 @pytest.mark.parametrize(
     "asset",
-    ["/static/app.css", "/static/vendor/htmx.min.js", "/static/img/tone-vs-rates.png"],
+    [
+        "/static/app.css",
+        "/static/vendor/htmx.min.js",
+        "/static/img/tone-vs-rates.png",
+        "/static/img/tone-reliability.png",
+    ],
 )
 def test_static_assets_are_served(web_client: TestClient, asset: str) -> None:
     response = web_client.get(asset)

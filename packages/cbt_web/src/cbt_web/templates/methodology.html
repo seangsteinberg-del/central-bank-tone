@@ -50,6 +50,25 @@
 </section>
 
 <section class="panel">
+  <h2>Are the confidences trustworthy?</h2>
+  <p class="muted" style="margin-top:-4px">
+    Accuracy alone hides whether a model is sure when it is wrong. Binning test predictions by
+    confidence and comparing each bin's stated confidence to its observed hit-rate gives the
+    calibration error.
+  </p>
+  <div class="callout">
+    Expected calibration error <span class="num">ECE = 0.142</span>, maximum
+    <span class="num">MCE = 0.276</span>. The error is one-sided: the classifier is
+    <strong>under-confident</strong> (mean confidence near <span class="num">0.46</span> against
+    <span class="num">59.9%</span> accuracy), so its probability is a conservative lower bound on
+    how often it is right, not an over-statement to be discounted. That is the expected shape for a
+    three-class softmax, which divides probability mass across the classes.
+  </div>
+  <img class="research-img" src="/static/img/tone-reliability.png"
+       alt="Reliability diagram and confidence histogram for the supervised classifier on the FOMC test split">
+</section>
+
+<section class="panel">
   <h2>Does the tone track policy?</h2>
   <p class="muted" style="margin-top:-4px">
     Annual FOMC tone vs the fed funds rate and the 2- and 10-year Treasury yields (FRED), 1996-2022.

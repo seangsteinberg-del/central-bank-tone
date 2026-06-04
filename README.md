@@ -26,8 +26,11 @@ macro-F1, and the gain is statistically significant: McNemar **p = 0.012**, boot
 accuracy gap **[+2.2%, +14.1%]** (excludes zero). For context, fine-tuned RoBERTa-large reaches ~0.72
 weighted F1 on this benchmark and zero-shot LLMs ~0.59 F1, so a transparent linear model at 0.58
 macro-F1 is a credible floor in the zero-shot-LLM range, not a state-of-the-art claim (see
-[docs/research/state-of-the-art.md](docs/research/state-of-the-art.md)). Full numbers and the
-confusion matrices: [docs/research/tone-evaluation.md](docs/research/tone-evaluation.md).
+[docs/research/state-of-the-art.md](docs/research/state-of-the-art.md)). The evaluation also reports
+**calibration** (ECE 0.142, MCE 0.276, with a reliability diagram): the classifier is under-confident
+on this benchmark, so its predicted-class probability is a conservative lower bound on its accuracy.
+Full numbers, confusion matrices, and the reliability diagram:
+[docs/research/tone-evaluation.md](docs/research/tone-evaluation.md).
 
 **Tone tracks the policy cycle.** Annual FOMC tone vs the fed funds rate and the 2- and 10-year
 Treasury yields (FRED), 1996-2022. Regressing the same-year change in the 2-year yield on annual

@@ -50,8 +50,9 @@ production analogue of the zero-shot-LLM tier; a fine-tuned PLM would be the way
 
 1. **Switch `cbt_worker` to the BIS bulk ZIP** as the backfill source (no fragile HTML scraping; one CSV,
    noncommercial-clean for research). Keep the RSS path for incremental updates. (Highest impact.)
-2. **Add a calibration metric** (ECE/MCE) to `scripts/eval_tone.py` from the MIT reliability-diagrams math,
-   so we report not just accuracy but how trustworthy the classifier's confidences are.
+2. ~~**Add a calibration metric** (ECE/MCE) to `scripts/eval_tone.py`.~~ **Done.** The eval reports
+   ECE 0.142, MCE 0.276, a multiclass Brier score, and a reliability diagram; the classifier is
+   under-confident on this benchmark (`docs/research/tone-evaluation.md`).
 3. **Cross-dataset evaluation**: score the classifier on op-fed (MIT) as an out-of-distribution check, so the
    number is not benchmark-specific.
 4. **A fine-tuned PLM tier** (e.g. finBERT, Apache-2.0, behind the existing `LlmClient` boundary) to close the

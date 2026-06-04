@@ -41,13 +41,14 @@ mpl.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from cbt_core.analysis.classifier import ToneClassifier
+from cbt_core.analysis.classifier import ClassifierScore, ToneClassifier
 from cbt_core.analysis.lexicon import HawkishDovishLexicon
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _CACHE_DIR = _REPO_ROOT / "data" / "benchmarks"
 _REPORT = _REPO_ROOT / "docs" / "research" / "tone-evaluation.md"
 _CONFUSION_PNG = _REPO_ROOT / "docs" / "research" / "tone-confusion-matrix.png"
+_RELIABILITY_PNG = _REPO_ROOT / "docs" / "research" / "tone-reliability.png"
 
 _DATASET = "gtfintechlab/fomc_communication"
 _ROWS_URL = "https://datasets-server.huggingface.co/rows"
@@ -57,6 +58,7 @@ _CLASSES = ("hawkish", "dovish", "neutral")
 _THRESHOLDS = [round(0.05 * i, 2) for i in range(13)]  # 0.00 .. 0.60
 _BOOTSTRAP_SAMPLES = 2000
 _BOOTSTRAP_SEED = 0
+_CALIBRATION_BINS = 10
 
 
 @dataclass(frozen=True)
@@ -260,18 +262,93 @@ def _evaluate_lexicon(train: list[dict[str, object]], test: list[dict[str, objec
     )
 
 
-def _evaluate_classifier(test: list[dict[str, object]]) -> Result:
-    """Score the test split with the trained supervised classifier."""
+def _classifier_scores(test: list[dict[str, object]]) -> list[ClassifierScore]:
+    """Score every test sentence once with the trained classifier (label + full distribution)."""
     model = ToneClassifier.load_default()
-    pred = [model.score(_sentence(r)).label for r in test]
+    return [model.score(_sentence(r)) for r in test]
+
+
+def _evaluate_classifier(test: list[dict[str, object]], scores: list[ClassifierScore]) -> Result:
+    """Build the classifier's result from its per-sentence scores."""
     return Result.from_predictions(
         "Supervised classifier (TF-IDF + logistic regression)",
         "class-balanced multinomial logistic regression over TF-IDF features, trained on the "
         "train split only (ADR 0013); predicts on every sentence",
         _gold(test),
-        pred,
+        [s.label for s in scores],
         fired=len(test),
     )
+
+
+@dataclass(frozen=True)
+class CalibrationBin:
+    """One confidence bin of a reliability diagram."""
+
+    lo: float
+    hi: float
+    count: int
+    confidence: float  # mean predicted confidence of items in the bin
+    accuracy: float  # fraction of items in the bin that were correct
+
+
+@dataclass(frozen=True)
+class Calibration:
+    """Calibration of the classifier's confidences: how well they match observed accuracy."""
+
+    ece: float  # expected calibration error (support-weighted mean absolute gap)
+    mce: float  # maximum calibration error (worst non-empty bin)
+    signed_gap: float  # mean confidence minus accuracy; <0 under-confident, >0 over-confident
+    brier: float  # multiclass Brier score over the full distribution
+    bins: list[CalibrationBin]
+
+
+def _calibration(gold: list[str], scores: list[ClassifierScore]) -> Calibration:
+    """Bin predictions by confidence and measure ECE, MCE, and the multiclass Brier score.
+
+    Confidence is the predicted class's probability. For a three-class softmax it cannot fall
+    below 1/3, so the low bins are empty by construction; that is expected for an argmax
+    reliability diagram and noted in the report.
+    """
+    confidence = np.array([s.confidence for s in scores])
+    correct = np.array([s.label == g for s, g in zip(scores, gold, strict=True)], dtype=np.float64)
+    n = len(gold)
+    edges = np.linspace(0.0, 1.0, _CALIBRATION_BINS + 1)
+    bins: list[CalibrationBin] = []
+    ece = 0.0
+    mce = 0.0
+    for i in range(_CALIBRATION_BINS):
+        lo, hi = float(edges[i]), float(edges[i + 1])
+        # The last bin includes its right edge so a confidence of exactly 1.0 is counted.
+        in_bin = (confidence >= lo) & (
+            confidence <= hi if i == _CALIBRATION_BINS - 1 else confidence < hi
+        )
+        count = int(in_bin.sum())
+        if count == 0:
+            bins.append(CalibrationBin(lo=lo, hi=hi, count=0, confidence=0.0, accuracy=0.0))
+            continue
+        bin_conf = float(confidence[in_bin].mean())
+        bin_acc = float(correct[in_bin].mean())
+        gap = abs(bin_acc - bin_conf)
+        ece += gap * count / n
+        mce = max(mce, gap)
+        bins.append(
+            CalibrationBin(lo=lo, hi=hi, count=count, confidence=bin_conf, accuracy=bin_acc)
+        )
+    signed_gap = float(confidence.mean() - correct.mean()) if n else 0.0
+    return Calibration(
+        ece=ece, mce=mce, signed_gap=signed_gap, brier=_brier(gold, scores), bins=bins
+    )
+
+
+def _brier(gold: list[str], scores: list[ClassifierScore]) -> float:
+    """Multiclass Brier score: mean over samples of the squared error of the full distribution."""
+    total = 0.0
+    for g, s in zip(gold, scores, strict=True):
+        for cls in _CLASSES:
+            predicted = s.probabilities.get(cls, 0.0)
+            actual = 1.0 if g == cls else 0.0
+            total += (predicted - actual) ** 2
+    return total / len(gold) if gold else 0.0
 
 
 def _evaluate_gemini(test: list[dict[str, object]]) -> Result:
@@ -325,6 +402,55 @@ def _write_confusion_png(results: list[Result]) -> None:
     fig.suptitle("Confusion matrices on the FOMC test split (rows = gold, columns = predicted)")
     fig.tight_layout()
     fig.savefig(_CONFUSION_PNG, dpi=140)
+    plt.close(fig)
+
+
+def _write_reliability_png(calibration: Calibration) -> None:
+    """Render a reliability diagram and a confidence histogram for the classifier."""
+    fig, (rel, hist) = plt.subplots(1, 2, figsize=(9.2, 4.0))
+    width = 1.0 / _CALIBRATION_BINS
+    centers = [b.lo + width / 2 for b in calibration.bins]
+    accuracies = [b.accuracy if b.count else 0.0 for b in calibration.bins]
+    counts = [b.count for b in calibration.bins]
+
+    rel.plot([0, 1], [0, 1], color="#8a96aa", linestyle="--", linewidth=1, label="perfect")
+    rel.bar(
+        centers,
+        accuracies,
+        width=width * 0.9,
+        color="#2f6df6",
+        edgecolor="white",
+        label="accuracy",
+    )
+    # Shade the gap between confidence and accuracy in each populated bin.
+    for b in calibration.bins:
+        if b.count:
+            rel.bar(
+                b.lo + width / 2,
+                b.confidence - b.accuracy,
+                bottom=b.accuracy,
+                width=width * 0.9,
+                color="#d23b35",
+                alpha=0.25,
+            )
+    rel.set_xlim(0, 1)
+    rel.set_ylim(0, 1)
+    rel.set_xlabel("confidence (predicted-class probability)")
+    rel.set_ylabel("accuracy")
+    rel.set_title(
+        f"Reliability (ECE {calibration.ece:.3f}, MCE {calibration.mce:.3f})", fontsize=10
+    )
+    rel.legend(loc="upper left", fontsize=8)
+
+    hist.bar(centers, counts, width=width * 0.9, color="#6b7686", edgecolor="white")
+    hist.set_xlim(0, 1)
+    hist.set_xlabel("confidence")
+    hist.set_ylabel("test sentences")
+    hist.set_title("Confidence distribution", fontsize=10)
+
+    fig.suptitle("Supervised classifier calibration on the FOMC test split")
+    fig.tight_layout()
+    fig.savefig(_RELIABILITY_PNG, dpi=140)
     plt.close(fig)
 
 
@@ -382,6 +508,53 @@ disagree on. The classifier is right and the lexicon wrong on {sig.a_only_correc
 """
 
 
+def _calibration_section(calibration: Calibration) -> str:
+    """Render the classifier calibration metrics and reliability table."""
+    rows = "\n".join(
+        f"| {b.lo:.1f}-{b.hi:.1f} | {b.count} | "
+        f"{b.confidence:.3f} | {b.accuracy:.3f} | {b.confidence - b.accuracy:+.3f} |"
+        for b in calibration.bins
+        if b.count
+    )
+    if calibration.signed_gap < -0.01:
+        direction = (
+            "under-confident: in every populated bin it is right more often than its probability "
+            "claims, so its confidence is a conservative lower bound on its accuracy. This is "
+            "common for a three-class softmax, which splits probability mass across the classes"
+        )
+    elif calibration.signed_gap > 0.01:
+        direction = (
+            "over-confident: it states higher probabilities than its hit-rate justifies, so its "
+            "confidence should be discounted before it is acted on"
+        )
+    else:
+        direction = "close to calibrated: stated confidence tracks observed accuracy"
+    return f"""## Are the classifier's confidences trustworthy?
+
+Accuracy means little if a model is sure when it is wrong. Binning the supervised classifier's test
+predictions by confidence (the predicted class's probability) measures whether a stated confidence
+matches the observed hit-rate. For a three-class softmax the confidence cannot fall below 1/3, so
+the low bins are empty by construction.
+
+- **Expected calibration error (ECE): {calibration.ece:.3f}** (support-weighted mean absolute gap
+  between confidence and accuracy; lower is better).
+- **Maximum calibration error (MCE): {calibration.mce:.3f}** (worst populated bin).
+- **Mean confidence minus accuracy: {calibration.signed_gap:+.3f}** (the direction of the
+  miscalibration).
+- **Brier score: {calibration.brier:.3f}** (mean squared error of the full predicted distribution).
+
+| confidence bin | n | mean confidence | accuracy | gap (conf - acc) |
+|---|---|---|---|---|
+{rows}
+
+The gap is confidence minus accuracy, so a negative gap is under-confidence and a positive gap is
+over-confidence. This model is {direction}. The reliability diagram (left) plots accuracy against
+confidence with the gap shaded; the histogram (right) shows how confidence is distributed.
+
+![Reliability diagram](tone-reliability.png)
+"""
+
+
 def _write_report(
     *,
     train_n: int,
@@ -391,6 +564,7 @@ def _write_report(
     mapping_note: str,
     results: list[Result],
     significance: Significance,
+    calibration: Calibration,
 ) -> None:
     """Write the markdown evaluation report covering every scorer that ran."""
     sections = "\n".join(_result_section(r, baseline_acc, majority) for r in results)
@@ -429,6 +603,7 @@ dominated by the large neutral class).
 {_significance_section(significance)}
 ![Confusion matrices](tone-confusion-matrix.png)
 
+{_calibration_section(calibration)}
 ## Honest reading
 
 The supervised classifier (ADR 0013) is the strongest offline scorer: it learns from the whole
@@ -453,7 +628,9 @@ def main() -> int:
     print(f"  {mapping_note}")
 
     lexicon_result = _evaluate_lexicon(train, test)
-    classifier_result = _evaluate_classifier(test)
+    classifier_scores = _classifier_scores(test)
+    classifier_result = _evaluate_classifier(test, classifier_scores)
+    calibration = _calibration(_gold(test), classifier_scores)
     results = [lexicon_result, classifier_result]
     if with_gemini:
         print("  scoring with Gemini (this spends API calls) ...")
@@ -475,8 +652,13 @@ def main() -> int:
         f"p={significance.mcnemar_p:.3g}, acc gain {significance.acc_diff:+.3f} "
         f"95% CI [{significance.ci_low:+.3f}, {significance.ci_high:+.3f}]"
     )
+    print(
+        f"  classifier calibration: ECE={calibration.ece:.3f} MCE={calibration.mce:.3f} "
+        f"Brier={calibration.brier:.3f}"
+    )
 
     _write_confusion_png(results)
+    _write_reliability_png(calibration)
     _write_report(
         train_n=len(train),
         test_n=len(test),
@@ -485,8 +667,12 @@ def main() -> int:
         mapping_note=mapping_note,
         results=results,
         significance=significance,
+        calibration=calibration,
     )
-    print(f"wrote {_REPORT.relative_to(_REPO_ROOT)} and {_CONFUSION_PNG.relative_to(_REPO_ROOT)}")
+    print(
+        f"wrote {_REPORT.relative_to(_REPO_ROOT)}, {_CONFUSION_PNG.relative_to(_REPO_ROOT)}, "
+        f"and {_RELIABILITY_PNG.relative_to(_REPO_ROOT)}"
+    )
     return 0
 
 
