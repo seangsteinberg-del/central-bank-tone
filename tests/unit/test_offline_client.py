@@ -7,7 +7,15 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-from cbt_core import OfflineLlmClient, RetrievedChunk, ToneLabel
+from cbt_core import (
+    Aspect,
+    Horizon,
+    OfflineLlmClient,
+    RetrievedChunk,
+    StanceLabel,
+    ToneClassifier,
+    ToneLabel,
+)
 from cbt_core.domain.qa import EMBEDDING_DIM
 
 
@@ -36,6 +44,25 @@ def test_analyze_tone_calls_dovish_text_dovish(client: OfflineLlmClient) -> None
     )
     assert analysis.tone is ToneLabel.DOVISH
     assert analysis.score < 0
+
+
+@pytest.mark.unit
+def test_classify_sentences_labels_stance_aspect_and_horizon(client: OfflineLlmClient) -> None:
+    sentences = [
+        "We will raise interest rates and tighten policy to fight persistent inflation.",
+        "We will cut rates and ease policy to support growth.",
+    ]
+    result = client.classify_sentences(sentences)
+    assert [item.text for item in result] == sentences
+    # The stance is taken from the supervised classifier (this test pins the wiring, not the
+    # classifier's accuracy, which is measured separately).
+    oracle = ToneClassifier.load_default()
+    assert [item.label for item in result] == [
+        StanceLabel(oracle.score(sentence).label) for sentence in sentences
+    ]
+    # Aspect and horizon come from the deterministic cue heuristics, not the model.
+    assert result[0].aspect is Aspect.INFLATION
+    assert result[0].horizon is Horizon.FORWARD
 
 
 @pytest.mark.unit

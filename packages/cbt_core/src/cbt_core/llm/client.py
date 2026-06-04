@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
+from cbt_core.analysis.stance import ClassifiedSentence
 from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import EMBEDDING_DIM, RetrievedChunk
 
@@ -34,6 +35,27 @@ class LlmClient(Protocol):
 
         Raises:
             LlmError: If the model call fails or returns an unusable response.
+        """
+        ...
+
+    def classify_sentences(self, sentences: Sequence[str]) -> list[ClassifiedSentence]:
+        """Classify each policy-relevant sentence's stance, aspect, and horizon (ADR 0021).
+
+        The structured-pipeline counterpart to :meth:`analyze_tone`: instead of one tone for the
+        whole speech, label each sentence so :func:`cbt_core.analysis.aggregate_stances` can build a
+        normalized net-hawkishness measure, a forward-looking sub-measure, and a per-aspect
+        breakdown. Implementations classify in one batched call, not one call per sentence.
+
+        Args:
+            sentences: The policy-relevant sentences, already filtered, in order.
+
+        Returns:
+            One :class:`~cbt_core.analysis.ClassifiedSentence` per input sentence, in the same
+            order. An empty input returns an empty list and makes no model call.
+
+        Raises:
+            LlmError: If the model call fails or returns a result that does not align one-to-one
+                with the input sentences.
         """
         ...
 

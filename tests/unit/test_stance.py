@@ -18,6 +18,8 @@ from cbt_core.analysis import (
     PolicyRelevanceFilter,
     StanceLabel,
     aggregate_stances,
+    infer_aspect,
+    infer_horizon,
     net_hawkishness,
     split_sentences,
     to_tone_label,
@@ -214,3 +216,40 @@ def test_aggregate_stances_records_pre_filter_total_when_given() -> None:
 def test_aggregate_stances_total_defaults_to_relevant_count() -> None:
     result = aggregate_stances([_sentence(StanceLabel.HAWKISH), _sentence(StanceLabel.DOVISH)])
     assert result.total == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("sentence", "expected"),
+    [
+        ("Inflation remains elevated above our target.", Aspect.INFLATION),
+        ("The labour market is tight and wage pressures persist.", Aspect.EMPLOYMENT),
+        ("We will continue to shrink the balance sheet.", Aspect.BALANCE_SHEET),
+        ("Risks to financial stability have built up.", Aspect.FINANCIAL_STABILITY),
+        ("Output growth and demand have softened.", Aspect.GROWTH),
+        ("Our projection and forward guidance are unchanged.", Aspect.GUIDANCE),
+        ("Thank you all for the warm welcome.", Aspect.OTHER),
+    ],
+)
+def test_infer_aspect_picks_the_dominant_topic(sentence: str, expected: Aspect) -> None:
+    assert infer_aspect(sentence) is expected
+
+
+@pytest.mark.unit
+def test_infer_aspect_breaks_ties_by_declared_order() -> None:
+    # One inflation cue and one growth cue: inflation is declared first, so it wins the tie.
+    assert infer_aspect("Inflation and growth were both discussed.") is Aspect.INFLATION
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("sentence", "expected"),
+    [
+        ("We will raise rates further.", Horizon.FORWARD),
+        ("Inflation rose sharply last year.", Horizon.BACKWARD),
+        ("The committee met in Basel.", Horizon.UNSPECIFIED),
+        ("Rates rose and will rise again.", Horizon.UNSPECIFIED),
+    ],
+)
+def test_infer_horizon_reads_temporal_cues(sentence: str, expected: Horizon) -> None:
+    assert infer_horizon(sentence) is expected

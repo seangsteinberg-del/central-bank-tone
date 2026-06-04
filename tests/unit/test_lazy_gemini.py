@@ -23,11 +23,13 @@ def test_lazy_client_builds_once_on_first_use_and_delegates(
     assert builds["count"] == 0  # constructing the lazy client does not build the real one
 
     lazy.analyze_tone("a speech")
+    lazy.classify_sentences(["a policy sentence"])
     lazy.embed(["one", "two"])
     lazy.answer("a question?", [])
 
     assert builds["count"] == 1  # built once, then cached
     assert stub_llm_client.calls == ["a speech"]
+    assert stub_llm_client.classified == 1
     assert stub_llm_client.answers == 1
 
 

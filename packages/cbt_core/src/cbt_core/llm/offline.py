@@ -26,6 +26,12 @@ from collections.abc import Sequence
 import numpy as np
 
 from cbt_core.analysis.classifier import ToneClassifier, ngrams, tokenize
+from cbt_core.analysis.stance import (
+    ClassifiedSentence,
+    StanceLabel,
+    infer_aspect,
+    infer_horizon,
+)
 from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import EMBEDDING_DIM, RetrievedChunk
 from cbt_core.domain.tone import ToneLabel
@@ -119,6 +125,29 @@ class OfflineLlmClient:
             score=score,
             rationale=rationale,
         )
+
+    def classify_sentences(self, sentences: Sequence[str]) -> list[ClassifiedSentence]:
+        """Classify each sentence's stance with the supervised model, aspect and horizon by cue.
+
+        The keyless counterpart to the Gemini classifier (ADR 0021): the supervised classifier
+        (ADR 0013) assigns the stance, and the deterministic cue heuristics assign the aspect and
+        horizon. No network.
+
+        Args:
+            sentences: The policy-relevant sentences, in order.
+
+        Returns:
+            One :class:`~cbt_core.analysis.ClassifiedSentence` per input sentence, in order.
+        """
+        return [
+            ClassifiedSentence(
+                text=sentence,
+                label=StanceLabel(self._classifier.score(sentence).label),
+                aspect=infer_aspect(sentence),
+                horizon=infer_horizon(sentence),
+            )
+            for sentence in sentences
+        ]
 
     def embed(self, texts: Sequence[str]) -> list[Embedding]:
         """Embed texts with deterministic signed feature hashing.

@@ -19,6 +19,12 @@ All notable changes to this project are documented in this file. The format foll
   and an honest abstention (`NEUTRAL`) when no policy-relevant sentence is found. Who classifies each
   sentence is injected (Gemini in production, the supervised classifier offline, a stub in tests), so
   the reproducible accounting is tested with no network or GPU.
+- `LlmClient.classify_sentences` (ADR 0021), a batched per-sentence stance/aspect/horizon classifier
+  on the model boundary that feeds `aggregate_stances`. The Gemini client implements it as one
+  structured call returning a JSON array constrained to the schema spine (stance, aspect, and
+  horizon enums), not one call per sentence; the keyless offline client uses the supervised
+  classifier for stance and deterministic cue heuristics (`infer_aspect`, `infer_horizon`) for the
+  aspect and horizon axes.
 - Dashboard Policy Monitor, a macro-desk redesign of the landing page. The hero is now a sortable
   bank-by-bank matrix (current committee stance with a diverging move-track, 1-month and 3-month
   change, a 6-month inline sparkline, and the hawk/dove committee split), with server-rendered

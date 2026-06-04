@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from unittest.mock import MagicMock
 from uuid import UUID
@@ -9,6 +10,7 @@ from uuid import UUID
 import pytest
 from pydantic import SecretStr
 
+from cbt_core.analysis import Aspect, Horizon, StanceLabel
 from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import EMBEDDING_DIM, RetrievedChunk
 from cbt_core.domain.tone import ToneLabel
@@ -61,6 +63,62 @@ def test_analyze_tone_raises_llm_error_on_unparseable_response(text: object) -> 
     client.models.generate_content.return_value.text = text
     with pytest.raises(LlmError):
         _gemini(client).analyze_tone("a speech")
+
+
+# --- classify_sentences ----------------------------------------------------------------------
+
+_VERDICTS_JSON = json.dumps(
+    [
+        {"stance": "hawkish", "aspect": "inflation", "horizon": "forward"},
+        {"stance": "dovish", "aspect": "growth", "horizon": "backward"},
+    ]
+)
+
+
+@pytest.mark.unit
+def test_classify_sentences_maps_each_verdict_to_a_classified_sentence() -> None:
+    client = _client()
+    client.models.generate_content.return_value.text = _VERDICTS_JSON
+    result = _gemini(client).classify_sentences(["We will hike.", "Growth slowed."])
+    assert [item.label for item in result] == [StanceLabel.HAWKISH, StanceLabel.DOVISH]
+    assert result[0].text == "We will hike."
+    assert result[0].aspect is Aspect.INFLATION
+    assert result[0].horizon is Horizon.FORWARD
+    assert result[1].aspect is Aspect.GROWTH
+    assert result[1].horizon is Horizon.BACKWARD
+
+
+@pytest.mark.unit
+def test_classify_sentences_empty_input_makes_no_call() -> None:
+    client = _client()
+    assert _gemini(client).classify_sentences([]) == []
+    client.models.generate_content.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("text", [None, ""])
+def test_classify_sentences_raises_on_empty_response(text: object) -> None:
+    client = _client()
+    client.models.generate_content.return_value.text = text
+    with pytest.raises(LlmError):
+        _gemini(client).classify_sentences(["a policy sentence"])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("text", ["not json", '[{"stance": "banana"}]'])
+def test_classify_sentences_raises_on_unparseable_response(text: str) -> None:
+    client = _client()
+    client.models.generate_content.return_value.text = text
+    with pytest.raises(LlmError):
+        _gemini(client).classify_sentences(["a policy sentence"])
+
+
+@pytest.mark.unit
+def test_classify_sentences_raises_when_verdict_count_mismatches() -> None:
+    client = _client()
+    client.models.generate_content.return_value.text = _VERDICTS_JSON  # two verdicts
+    with pytest.raises(LlmError, match="were sent"):
+        _gemini(client).classify_sentences(["only one sentence"])
 
 
 # --- embed -----------------------------------------------------------------------------------

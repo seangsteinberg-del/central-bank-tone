@@ -276,6 +276,114 @@ class PolicyRelevanceFilter:
         return [sentence for sentence in sentences if self.is_relevant(sentence)]
 
 
+# Cue terms for the deterministic aspect and horizon heuristics. These are a coarse, transparent
+# fallback used by the offline path and where a model does not supply the axes; the production Gemini
+# classifier judges aspect and horizon itself. Aspects are tested in order, so the first with the
+# most cue hits wins ties, which is why the more specific aspects come before GROWTH.
+_ASPECT_CUES: tuple[tuple[Aspect, frozenset[str]], ...] = (
+    (
+        Aspect.INFLATION,
+        frozenset({"inflation", "inflationary", "disinflation", "deflation", "price", "cpi"}),
+    ),
+    (
+        Aspect.EMPLOYMENT,
+        frozenset({"employment", "unemployment", "jobs", "labour", "labor", "wage"}),
+    ),
+    (
+        Aspect.BALANCE_SHEET,
+        frozenset({"balance sheet", "asset purchases", "quantitative", "reserves", "liquidity"}),
+    ),
+    (
+        Aspect.FINANCIAL_STABILITY,
+        frozenset({"financial stability", "financial system", "systemic", "leverage", "credit"}),
+    ),
+    (
+        Aspect.GROWTH,
+        frozenset({"growth", "gdp", "output", "demand", "recession", "recovery", "activity"}),
+    ),
+    (Aspect.GUIDANCE, frozenset({"guidance", "outlook", "projection", "forecast"})),
+)
+_FORWARD_CUES: frozenset[str] = frozenset(
+    {
+        "will",
+        "expect",
+        "anticipate",
+        "going forward",
+        "ahead",
+        "future",
+        "coming",
+        "intend",
+        "outlook",
+        "projection",
+        "forecast",
+        "likely",
+        "to come",
+    }
+)
+_BACKWARD_CUES: frozenset[str] = frozenset(
+    {
+        "was",
+        "were",
+        "has been",
+        "had",
+        "last year",
+        "previously",
+        "over the past",
+        "rose",
+        "fell",
+        "declined",
+        "slowed",
+    }
+)
+
+
+def _cue_hits(lowered: str, words: set[str], cues: frozenset[str]) -> int:
+    """Count how many cues appear, matching single words on tokens and phrases as substrings."""
+    return sum(1 for cue in cues if (cue in words if " " not in cue else cue in lowered))
+
+
+def infer_aspect(sentence: str) -> Aspect:
+    """Guess the policy aspect of a sentence from keyword cues (a deterministic fallback).
+
+    Args:
+        sentence: The sentence to classify.
+
+    Returns:
+        The aspect with the most cue hits, ties broken by the order in :data:`_ASPECT_CUES`, or
+        :attr:`Aspect.OTHER` when no cue matches.
+    """
+    lowered = sentence.lower()
+    words = set(_WORD_RE.findall(lowered))
+    best_aspect = Aspect.OTHER
+    best_hits = 0
+    for aspect, cues in _ASPECT_CUES:
+        hits = _cue_hits(lowered, words, cues)
+        if hits > best_hits:
+            best_aspect, best_hits = aspect, hits
+    return best_aspect
+
+
+def infer_horizon(sentence: str) -> Horizon:
+    """Guess whether a sentence is forward- or backward-looking from cues (a deterministic fallback).
+
+    Args:
+        sentence: The sentence to classify.
+
+    Returns:
+        :attr:`Horizon.FORWARD` or :attr:`Horizon.BACKWARD` when one side has strictly more cue
+        hits, otherwise :attr:`Horizon.UNSPECIFIED`.
+    """
+    lowered = sentence.lower()
+    words = set(_WORD_RE.findall(lowered))
+    forward = _cue_hits(lowered, words, _FORWARD_CUES)
+    backward = _cue_hits(lowered, words, _BACKWARD_CUES)
+    if forward > backward:
+        return Horizon.FORWARD
+    if backward > forward:
+        return Horizon.BACKWARD
+    return Horizon.UNSPECIFIED
+
+
 def net_hawkishness(hawkish: int, dovish: int, relevant: int) -> float:
     """Compute the normalized net-hawkishness measure.
 

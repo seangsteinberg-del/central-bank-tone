@@ -14,8 +14,9 @@ from collections.abc import Callable, Sequence
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
+from cbt_core.analysis.stance import Aspect, ClassifiedSentence, Horizon, StanceLabel
 from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.domain.tone import ToneLabel
@@ -98,6 +99,49 @@ _SYSTEM_INSTRUCTION = (
     "hawkish, -0.3 mildly dovish). Use 'mixed' only when the speech makes strong arguments in "
     "both directions. Judge only what the text supports; do not speculate beyond it."
 )
+
+# Schema for the batched sentence classifier (ADR 0021): a JSON array with one object per input
+# sentence. Enums are the domain stance, aspect, and horizon vocabularies, so Gemini cannot return a
+# value outside the schema spine.
+_SENTENCE_STANCE_SCHEMA = types.Schema(
+    type=types.Type.ARRAY,
+    items=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "stance": types.Schema(type=types.Type.STRING, enum=[s.value for s in StanceLabel]),
+            "aspect": types.Schema(type=types.Type.STRING, enum=[a.value for a in Aspect]),
+            "horizon": types.Schema(type=types.Type.STRING, enum=[h.value for h in Horizon]),
+        },
+        required=["stance", "aspect", "horizon"],
+        property_ordering=["stance", "aspect", "horizon"],
+    ),
+)
+
+_CLASSIFY_INSTRUCTION = (
+    "You are a central bank communications analyst. You are given a numbered list of sentences from "
+    "a central bank speech. For each sentence, classify three things. (1) Monetary-policy stance: "
+    "'hawkish' if it argues for or signals tighter policy (higher rates, withdrawing accommodation, "
+    "fighting inflation), 'dovish' for easier policy (lower rates, stimulus, supporting growth), or "
+    "'neutral' if it takes no policy direction. (2) Aspect: the policy topic it concerns, one of "
+    "inflation, growth, employment, balance_sheet, financial_stability, guidance, or other. "
+    "(3) Horizon: 'forward' if it states intent or expectation about future policy or the economy, "
+    "'backward' if it describes what already happened, or 'unspecified'. Return a JSON array with "
+    "exactly one object per input sentence, in the same order. Judge only what each sentence "
+    "supports."
+)
+
+
+class _SentenceVerdict(BaseModel):
+    """One sentence's classification as Gemini returns it, before mapping to a domain type."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    stance: StanceLabel
+    aspect: Aspect = Aspect.OTHER
+    horizon: Horizon = Horizon.UNSPECIFIED
+
+
+_VERDICTS_ADAPTER = TypeAdapter(list[_SentenceVerdict])
 
 _ANSWER_INSTRUCTION = (
     "You answer questions about a central bank speaker using only the provided excerpts from "
@@ -193,6 +237,66 @@ class GeminiClient:
             summary_chars=len(parsed.summary),
         )
         return parsed
+
+    def classify_sentences(self, sentences: Sequence[str]) -> list[ClassifiedSentence]:
+        """Classify each policy-relevant sentence's stance, aspect, and horizon in one call.
+
+        Args:
+            sentences: The policy-relevant sentences, already filtered, in order.
+
+        Returns:
+            One :class:`~cbt_core.analysis.ClassifiedSentence` per input sentence, in order. An empty
+            input returns an empty list with no model call.
+
+        Raises:
+            LlmError: If Gemini returns an empty response, an unparseable one, or a number of
+                verdicts that does not match the input sentences.
+        """
+        if not sentences:
+            return []
+        numbered = "\n".join(f"{index + 1}. {sentence}" for index, sentence in enumerate(sentences))
+        response = _with_backoff(
+            lambda: self._client.models.generate_content(
+                model=self._model,
+                contents=numbered,
+                config=types.GenerateContentConfig(
+                    system_instruction=_CLASSIFY_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=_SENTENCE_STANCE_SCHEMA,
+                    # Greedy decoding so the same speech classifies the same way across runs.
+                    temperature=0.0,
+                ),
+            ),
+            operation="classify_sentences",
+        )
+        text = response.text
+        if not text:
+            _logger.error("gemini_empty_response", model=self._model)
+            raise LlmError("Gemini returned an empty sentence classification")
+        try:
+            verdicts = _VERDICTS_ADAPTER.validate_json(text)
+        except ValidationError as exc:
+            # No exc_info: the detail echoes the model's response, which we do not log (section 7).
+            _logger.error("gemini_unparseable_response", model=self._model)  # noqa: TRY400
+            raise LlmError("Gemini returned an unparseable sentence classification") from exc
+        if len(verdicts) != len(sentences):
+            raise LlmError(
+                f"Gemini classified {len(verdicts)} sentences but {len(sentences)} were sent"
+            )
+        classified = [
+            ClassifiedSentence(
+                text=sentence, label=verdict.stance, aspect=verdict.aspect, horizon=verdict.horizon
+            )
+            for sentence, verdict in zip(sentences, verdicts, strict=True)
+        ]
+        _logger.info(
+            "gemini_sentences_classified",
+            model=self._model,
+            sentences=len(classified),
+            hawkish=sum(1 for item in classified if item.label is StanceLabel.HAWKISH),
+            dovish=sum(1 for item in classified if item.label is StanceLabel.DOVISH),
+        )
+        return classified
 
     def embed(self, texts: Sequence[str]) -> list[Embedding]:
         """Embed texts with the Gemini embedding model.
@@ -340,6 +444,10 @@ class LazyGeminiClient:
     def analyze_tone(self, speech_text: str) -> ToneAnalysis:
         """Summarize a speech and judge its tone (see :meth:`GeminiClient.analyze_tone`)."""
         return self._client().analyze_tone(speech_text)
+
+    def classify_sentences(self, sentences: Sequence[str]) -> list[ClassifiedSentence]:
+        """Classify sentences (see :meth:`GeminiClient.classify_sentences`)."""
+        return self._client().classify_sentences(sentences)
 
     def embed(self, texts: Sequence[str]) -> list[Embedding]:
         """Embed texts (see :meth:`GeminiClient.embed`)."""
