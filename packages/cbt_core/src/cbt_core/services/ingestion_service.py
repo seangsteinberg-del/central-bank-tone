@@ -169,6 +169,29 @@ class IngestionService:
         )
         return speech
 
+    def get_speech(
+        self, speech_id: UUID, *, actor: str = "system", correlation_id: UUID | None = None
+    ) -> Speech:
+        """Return a single analyzed speech by id.
+
+        Args:
+            speech_id: The speech to fetch.
+            actor: Who is performing the action.
+            correlation_id: Correlation id for this call; one is minted if not supplied.
+
+        Returns:
+            The :class:`Speech`.
+
+        Raises:
+            EntityNotFoundError: If no speech has that id.
+        """
+        correlation = correlation_id if correlation_id is not None else uuid4()
+        log = _logger.bind(correlation_id=str(correlation), actor=actor, speech_id=str(speech_id))
+        with self._session_factory() as session:
+            speech = SpeechRepository(session).get(speech_id)
+        log.info("speech_fetched")
+        return speech
+
     def list_speeches(
         self, speaker_id: UUID, *, actor: str = "system", correlation_id: UUID | None = None
     ) -> list[Speech]:

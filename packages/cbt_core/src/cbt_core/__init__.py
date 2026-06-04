@@ -48,8 +48,11 @@ from cbt_core.logging import (
     get_logger,
 )
 from cbt_core.persistence import (
+    InMemoryChunkRetriever,
     SpeechRetriever,
+    create_demo_schema,
     create_engine_from_settings,
+    make_demo_engine,
     make_session_factory,
 )
 from cbt_core.services import (
@@ -73,6 +76,7 @@ __all__ = [
     "GeminiClient",
     "HawkishDovishLexicon",
     "ImmutableRecordError",
+    "InMemoryChunkRetriever",
     "IndexingService",
     "IngestionService",
     "InvalidInputError",
@@ -99,8 +103,10 @@ __all__ = [
     "chunk_text",
     "clear_request_context",
     "configure_logging",
+    "create_demo_schema",
     "create_engine_from_settings",
     "get_logger",
     "get_settings",
+    "make_demo_engine",
     "make_session_factory",
 ]

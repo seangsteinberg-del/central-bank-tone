@@ -63,6 +63,7 @@ class OfflineLlmClient:
         dim: int = EMBEDDING_DIM,
         ngram_max: int = 2,
         summary_sentences: int = 3,
+        neutral_band: float = 0.10,
     ) -> None:
         """Build the offline client.
 
@@ -71,14 +72,23 @@ class OfflineLlmClient:
             dim: The embedding dimensionality (must match the platform's ``EMBEDDING_DIM``).
             ngram_max: The largest n-gram used when hashing text into embeddings.
             summary_sentences: How many sentences the extractive summary keeps.
+            neutral_band: A document whose absolute net hawkishness is below this is labelled
+                neutral rather than hawkish or dovish.
         """
         self._classifier = classifier if classifier is not None else ToneClassifier.load_default()
         self._dim = dim
         self._ngram_max = ngram_max
         self._summary_sentences = summary_sentences
+        self._neutral_band = neutral_band
 
     def analyze_tone(self, speech_text: str) -> ToneAnalysis:
-        """Score tone with the classifier and build an extractive summary and honest rationale.
+        """Score a speech's tone as the net share of hawkish vs dovish sentences.
+
+        The classifier (ADR 0013) labels each sentence; the document score is the net hawkishness
+        among the sentences that took a side, ``(hawkish - dovish) / (hawkish + dovish)``, in the
+        spirit of how central-bank tone indices are built by counting directional statements. This
+        is more faithful and far more dynamic than scoring one long concatenation, which a
+        sentence-trained classifier washes out toward neutral.
 
         Args:
             speech_text: The full text of the speech.
@@ -87,16 +97,26 @@ class OfflineLlmClient:
             A :class:`ToneAnalysis` from the offline classifier (never the MIXED label, which the
             three-class classifier does not produce).
         """
-        verdict = self._classifier.score(speech_text)
-        probs = verdict.probabilities
+        sentences = _sentences(speech_text) or [speech_text]
+        labels = [self._classifier.score(sentence).label for sentence in sentences]
+        total = len(labels)
+        hawkish = labels.count("hawkish")
+        dovish = labels.count("dovish")
+        directional = hawkish + dovish
+        score = (hawkish - dovish) / directional if directional else 0.0
+        if directional == 0 or abs(score) < self._neutral_band:
+            tone = ToneLabel.NEUTRAL
+        else:
+            tone = ToneLabel.HAWKISH if score > 0 else ToneLabel.DOVISH
         rationale = (
-            f"Offline supervised classifier (no LLM): P(hawkish)={probs['hawkish']:.2f}, "
-            f"P(dovish)={probs['dovish']:.2f}, P(neutral)={probs['neutral']:.2f}."
+            f"Offline supervised classifier (no LLM): {hawkish}/{total} hawkish, "
+            f"{dovish}/{total} dovish, {total - directional}/{total} neutral sentences; "
+            f"net hawkishness {score:+.2f}."
         )
         return ToneAnalysis(
             summary=self._summarize(speech_text),
-            tone=_LABEL_TO_TONE[verdict.label],
-            score=verdict.score,
+            tone=tone,
+            score=score,
             rationale=rationale,
         )
 

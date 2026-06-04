@@ -39,6 +39,21 @@ def test_analyze_tone_calls_dovish_text_dovish(client: OfflineLlmClient) -> None
 
 
 @pytest.mark.unit
+def test_document_tone_is_the_net_share_of_directional_sentences() -> None:
+    # A short text with a clear hawkish majority should score hawkish with a positive net share.
+    # A tiny neutral band keeps the assertion robust to one borderline sentence.
+    offline = OfflineLlmClient(neutral_band=0.05)
+    analysis = offline.analyze_tone(
+        "We will raise interest rates and tighten policy to curb inflation. "
+        "Further rate hikes are likely as price pressures persist. "
+        "We will cut rates and ease policy to support growth."
+    )
+    assert analysis.tone is ToneLabel.HAWKISH
+    assert analysis.score > 0
+    assert "net hawkishness" in analysis.rationale.lower()
+
+
+@pytest.mark.unit
 def test_analyze_tone_never_returns_mixed(client: OfflineLlmClient) -> None:
     # The three-class classifier cannot produce MIXED; the offline client must not invent it.
     analysis = client.analyze_tone("The economy expanded moderately over the period.")

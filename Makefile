@@ -1,14 +1,16 @@
 # Developer and demo shortcuts. See README.md for the manual (Windows/PowerShell) equivalents.
-.PHONY: help sync gate test lint db-up db-down migrate eval chart serve demo
+.PHONY: help sync gate test lint db-up db-down migrate eval train chart serve demo demo-lite
 
 help:
-	@echo "sync     - install the workspace (uv sync)"
-	@echo "gate     - run the full quality gate (ruff, mypy, imports, tests)"
-	@echo "eval     - score the lexicon vs the FOMC benchmark and plot tone vs rates"
-	@echo "db-up    - start Postgres + pgvector (docker compose)"
-	@echo "migrate  - apply migrations to head"
-	@echo "serve    - run the web UI (uvicorn, reload)"
-	@echo "demo     - db-up + migrate + serve (needs Docker; set CBT_DATABASE_URL/.env first)"
+	@echo "sync       - install the workspace (uv sync)"
+	@echo "gate       - run the full quality gate (ruff, mypy, imports, tests)"
+	@echo "eval       - score classifier vs lexicon vs the FOMC benchmark, plot tone vs rates"
+	@echo "train      - retrain the supervised tone-model artifact"
+	@echo "demo-lite  - serve a populated demo with NO key and NO Docker (SQLite + offline model)"
+	@echo "db-up      - start Postgres + pgvector (docker compose)"
+	@echo "migrate    - apply migrations to head"
+	@echo "serve      - run the web UI (uvicorn, reload)"
+	@echo "demo       - db-up + migrate + serve (needs Docker; set CBT_DATABASE_URL/.env first)"
 
 sync:
 	uv sync
@@ -26,6 +28,12 @@ test:
 eval:
 	uv run python scripts/eval_tone.py
 	uv run python scripts/tone_trajectory.py
+
+train:
+	uv run python scripts/train_tone_model.py
+
+demo-lite:
+	uv run python scripts/run_demo.py
 
 db-up:
 	docker compose up -d db
