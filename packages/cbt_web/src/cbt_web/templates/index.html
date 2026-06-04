@@ -29,6 +29,18 @@
   <div class="stat flag"><div class="value num">{{ overview.flagged }}</div><div class="label">Flagged for review</div></div>
 </section>
 
+{% if overview.speeches == 0 %}
+<section class="panel empty-corpus">
+  <h2>No speeches yet</h2>
+  <p class="muted">
+    The corpus is empty. This platform does not ship fabricated speeches: it is populated only by
+    real ingestion. Add a genuine speech (its real title, date, URL, and speaker) on the
+    <a href="/admin">Add data</a> page, where it is scored and indexed with no API key, or run the
+    worker to ingest at scale.
+  </p>
+</section>
+{% endif %}
+
 {% if overview.hawkish or overview.dovish %}
 <div class="grid-2">
   <section class="panel">

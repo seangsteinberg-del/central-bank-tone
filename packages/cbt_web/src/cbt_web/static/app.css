@@ -189,6 +189,9 @@ button:disabled { opacity: 0.6; cursor: progress; }
   padding: 20px 22px;
   margin-bottom: 18px;
 }
+.empty-corpus { border-left: 3px solid var(--accent); }
+.empty-corpus h2 { margin-top: 0; }
+.empty-corpus p { margin-bottom: 0; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } }
 

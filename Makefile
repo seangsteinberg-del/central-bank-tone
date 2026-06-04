@@ -7,7 +7,7 @@ help:
 	@echo "eval       - score classifier vs lexicon vs the FOMC benchmark, plot tone vs rates"
 	@echo "eval-cross - out-of-distribution check: score the classifier on op-fed (MIT)"
 	@echo "train      - retrain the supervised tone-model artifact"
-	@echo "demo-lite  - serve a populated demo with NO key and NO Docker (SQLite + offline model)"
+	@echo "demo-lite  - serve the keyless UI with NO key and NO Docker (SQLite + offline model); starts empty"
 	@echo "db-up      - start Postgres + pgvector (docker compose)"
 	@echo "migrate    - apply migrations to head"
 	@echo "serve      - run the web UI (uvicorn, reload)"

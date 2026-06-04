@@ -47,16 +47,17 @@ The Gemini path scores head-to-head on the same benchmark once a key is set (`ma
 ## See it running with no key and no Docker
 
 ```bash
-make demo-lite        # seeds the real FOMC corpus, scores it offline, serves the UI at :8000
+make demo-lite        # serves the keyless UI at :8000 (no key, no Docker); starts empty
 ```
 
-This builds a populated demo on SQLite with the supervised classifier and an offline retriever: a
-dashboard with per-Chair tone trajectories, a methodology page with the measured accuracy, and
-working natural-language search over the corpus, all with no Gemini key and no database. Click any
-speech for its detail page: a concise summary and, as of that speech, how far each member of the
-committee has shifted in tone since their previous speech and how the committee moved overall (ADR
-0015). (Run `make eval` once first to fetch the FOMC corpus; otherwise it falls back to a small
-illustrative set.)
+This builds a real application on SQLite with the supervised classifier and an offline retriever,
+plus a methodology page with the measured accuracy, all with no Gemini key and no database. It
+ships with no seed corpus: the platform never fabricates speeches to look populated (ADR 0017), so
+the demo starts empty and is populated only by real ingestion. Add a genuine speech (its real
+title, date, URL, and speaker) on the in-app Add data page, where it is scored and indexed
+keylessly, or run the worker to ingest at scale. Each speech then has a detail page: a concise
+summary and, as of that speech, how far each member of the committee has shifted in tone since
+their previous speech and how the committee moved overall (ADR 0015).
 
 ## How it works
 
@@ -87,7 +88,7 @@ packages/
 scripts/      check_imports.py (architecture invariants), train_tone_model.py + eval_tone.py +
               tone_trajectory.py + eval_cross_dataset.py (the evaluation above), run_demo.py
               (the keyless demo), migrate.py.
-docs/         CHANGELOG.md, adr/ (16 decision records), research/ (the evaluation with calibration,
+docs/         CHANGELOG.md, adr/ (17 decision records), research/ (the evaluation with calibration,
               the tone-vs-rates study, the out-of-distribution check, and a state-of-the-art survey).
 .github/      CI: ruff, mypy --strict, the import check, the test suite + coverage gate, pip-audit.
 ```

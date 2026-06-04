@@ -83,10 +83,10 @@ All notable changes to this project are documented in this file. The format foll
   path remains the production signal.
 - Keyless, Docker-less demo: `cbt_core.InMemoryChunkRetriever` (cosine retrieval with no pgvector),
   `make_demo_engine` / `create_demo_schema` (SQLite), `cbt_web.demo.build_demo_app`, and
-  `scripts/run_demo.py` (`make demo-lite`). The runner seeds the real FOMC corpus grouped by year
-  and attributed to the sitting Fed Chair, so the whole UI - per-Chair tone trajectories, the
-  cross-check markers, and natural-language search - runs populated with no Gemini key and no
-  Postgres. Adds `IngestionService.get_speech`.
+  `scripts/run_demo.py` (`make demo-lite`), so the whole UI - tone scoring, the tone charts, and
+  natural-language search - runs with no Gemini key and no Postgres. The demo starts empty and is
+  populated by real ingestion only (see Changed/Removed below; ADR 0017). Adds
+  `IngestionService.get_speech`.
 - Cross-dataset (out-of-distribution) evaluation: `scripts/eval_cross_dataset.py` applies the
   FOMC-trained classifier and the lexicon unchanged to op-fed (`kakeith/op-fed`, MIT; FOMC meeting
   transcripts labeled with a StanceNLI scheme), mapping entailment/contradiction/neutral onto
@@ -139,6 +139,18 @@ All notable changes to this project are documented in this file. The format foll
   Apel & Blix Grimaldi method) and the cross-check is now implemented, not just documented.
 - Gemini tone scoring uses temperature 0 and a scale-anchoring rubric so scores are reproducible
   and comparable across speeches.
+- The keyless demo (`make demo-lite`) no longer ships a seed corpus. It starts empty and is
+  populated only by real ingestion (the in-app Add data page, which scores and indexes keylessly,
+  or the worker); the dashboard renders an explicit empty state. Previously it seeded a fabricated
+  corpus: a whole year of FOMC sentences re-framed as one Chair "speech" with an invented date and
+  URL, or three hand-composed "illustrative" passages. The platform no longer fabricates speeches to
+  look populated (ADR 0017).
+
+### Removed
+- Purged all synthetic and locally-cached evaluation data: the fabricated demo seed corpus
+  (above) and the on-demand benchmark cache under `data/benchmarks/` (the FOMC, FRED, and op-fed
+  downloads). The benchmark data is gitignored and was never committed; the evaluation scripts
+  re-download it on demand, so the reported accuracy stays reproducible.
 
 ### Fixed
 - The live Gemini tone path returned HTTP 400. `analyze_tone` passed the `ToneAnalysis` Pydantic
