@@ -26,7 +26,9 @@ Usage::
 from __future__ import annotations
 
 import json
+import random
 import sys
+import time
 import urllib.parse
 import urllib.request
 from collections import Counter
@@ -49,6 +51,9 @@ _CACHE_DIR = _REPO_ROOT / "data" / "benchmarks"
 _REPORT = _REPO_ROOT / "docs" / "research" / "tone-evaluation.md"
 _CONFUSION_PNG = _REPO_ROOT / "docs" / "research" / "tone-confusion-matrix.png"
 _RELIABILITY_PNG = _REPO_ROOT / "docs" / "research" / "tone-reliability.png"
+# The live three-way (Gemini) head-to-head writes here, leaving the canonical keyless report intact.
+_GEMINI_REPORT = _REPO_ROOT / "docs" / "research" / "gemini-head-to-head.md"
+_GEMINI_CONFUSION_PNG = _REPO_ROOT / "docs" / "research" / "gemini-confusion-matrix.png"
 
 _DATASET = "gtfintechlab/fomc_communication"
 _ROWS_URL = "https://datasets-server.huggingface.co/rows"
@@ -59,6 +64,12 @@ _THRESHOLDS = [round(0.05 * i, 2) for i in range(13)]  # 0.00 .. 0.60
 _BOOTSTRAP_SAMPLES = 2000
 _BOOTSTRAP_SEED = 0
 _CALIBRATION_BINS = 10
+# Live Gemini calls: space them out and retry transient/rate-limit errors with exponential backoff
+# so the head-to-head survives a personal/free-tier key instead of crashing on the first 429.
+_GEMINI_RETRYABLE = frozenset({429, 500, 502, 503, 504})
+_GEMINI_MAX_ATTEMPTS = 6
+_GEMINI_BACKOFF_BASE = 2.0
+_GEMINI_THROTTLE_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -238,27 +249,37 @@ def _sanity_check_mapping(lexicon: HawkishDovishLexicon, rows: list[dict[str, ob
     )
 
 
-def _evaluate_lexicon(train: list[dict[str, object]], test: list[dict[str, object]]) -> Result:
-    """Tune the lexicon threshold on train, evaluate on test."""
-    lexicon = HawkishDovishLexicon()
-    train_gold, test_gold = _gold(train), _gold(test)
+def _tune_lexicon_tau(lexicon: HawkishDovishLexicon, train: list[dict[str, object]]) -> float:
+    """Select the lexicon's neutral-band threshold by macro-F1 on the train split only."""
+    train_gold = _gold(train)
     best_tau, best_f1 = 0.0, -1.0
     for tau in _THRESHOLDS:
         pred = [_lexicon_label(lexicon, _sentence(r), tau) for r in train]
         f1 = _macro_f1(train_gold, pred)
         if f1 > best_f1:
             best_tau, best_f1 = tau, f1
-    print(f"  lexicon tuned tau={best_tau} (train macro-F1={best_f1:.3f})")
-    pred = [_lexicon_label(lexicon, _sentence(r), best_tau) for r in test]
-    fired = sum(
-        1 for r in test if (s := lexicon.score(_sentence(r))).hawkish_hits + s.dovish_hits > 0
+    return best_tau
+
+
+def _lexicon_fired(lexicon: HawkishDovishLexicon, rows: list[dict[str, object]]) -> int:
+    """Count rows where the lexicon found at least one signal term (did not abstain)."""
+    return sum(
+        1 for r in rows if (s := lexicon.score(_sentence(r))).hawkish_hits + s.dovish_hits > 0
     )
+
+
+def _evaluate_lexicon(train: list[dict[str, object]], test: list[dict[str, object]]) -> Result:
+    """Tune the lexicon threshold on train, evaluate on test."""
+    lexicon = HawkishDovishLexicon()
+    best_tau = _tune_lexicon_tau(lexicon, train)
+    print(f"  lexicon tuned tau={best_tau}")
+    pred = [_lexicon_label(lexicon, _sentence(r), best_tau) for r in test]
     return Result.from_predictions(
         "Deterministic lexicon",
         f"net-hawkishness with negation handling; neutral band tau={best_tau} tuned on train",
-        test_gold,
+        _gold(test),
         pred,
-        fired=fired,
+        fired=_lexicon_fired(lexicon, test),
     )
 
 
@@ -351,8 +372,25 @@ def _brier(gold: list[str], scores: list[ClassifierScore]) -> float:
     return total / len(gold) if gold else 0.0
 
 
-def _evaluate_gemini(test: list[dict[str, object]]) -> Result:
-    """Score the test split with the live Gemini path (requires CBT_GEMINI_API_KEY)."""
+def _sampled(rows: list[dict[str, object]], k: int, seed: int) -> list[dict[str, object]]:
+    """Return a deterministic random sample of ``k`` rows (or all rows if ``k`` is larger)."""
+    if k >= len(rows):
+        return list(rows)
+    # Deterministic sampling for a reproducible eval subset; not security-sensitive.
+    indices = sorted(random.Random(seed).sample(range(len(rows)), k))  # noqa: S311
+    return [rows[i] for i in indices]
+
+
+def _gemini_predictions(rows: list[dict[str, object]]) -> list[str]:
+    """Score rows with the live Gemini path, resilient to rate limits.
+
+    Each call is spaced out and retried with exponential backoff on transient/rate-limit errors.
+    If the API ultimately fails (for example a daily quota is exhausted), scoring stops and the
+    predictions gathered so far are returned, so the caller can still report an honest partial
+    head-to-head on exactly the sentences that were scored.
+    """
+    from google.genai import errors as genai_errors
+
     from cbt_core import ToneLabel, build_gemini_client, get_settings
 
     client = build_gemini_client(get_settings())
@@ -362,22 +400,35 @@ def _evaluate_gemini(test: list[dict[str, object]]) -> Result:
         ToneLabel.NEUTRAL: "neutral",
         ToneLabel.MIXED: "neutral",
     }
-    pred: list[str] = []
-    for i, row in enumerate(test):
-        analysis = client.analyze_tone(_sentence(row))
-        pred.append(tone_to_class[analysis.tone])
-        if (i + 1) % 25 == 0:
-            print(f"    gemini scored {i + 1}/{len(test)}")
-    return Result.from_predictions(
-        "Gemini (gemini-2.5-flash)",
-        "LLM-as-judge tone label per sentence; MIXED folded into neutral for this 3-class benchmark",
-        _gold(test),
-        pred,
-        fired=len(test),
-    )
+    preds: list[str] = []
+    for i, row in enumerate(rows):
+        label: str | None = None
+        for attempt in range(_GEMINI_MAX_ATTEMPTS):
+            try:
+                if _GEMINI_THROTTLE_SECONDS:
+                    time.sleep(_GEMINI_THROTTLE_SECONDS)
+                label = tone_to_class[client.analyze_tone(_sentence(row)).tone]
+                break
+            except genai_errors.APIError as exc:
+                code = getattr(exc, "code", None)
+                if code in _GEMINI_RETRYABLE and attempt < _GEMINI_MAX_ATTEMPTS - 1:
+                    time.sleep(_GEMINI_BACKOFF_BASE * (2**attempt))
+                    continue
+                print(f"  gemini stopped at {i}/{len(rows)}: {type(exc).__name__} code={code}")
+                return preds
+        if label is None:
+            return preds
+        preds.append(label)
+        if (i + 1) % 20 == 0:
+            print(f"  gemini scored {i + 1}/{len(rows)}")
+    return preds
 
 
-def _write_confusion_png(results: list[Result]) -> None:
+def _write_confusion_png(
+    results: list[Result],
+    path: Path = _CONFUSION_PNG,
+    suptitle: str = "Confusion matrices on the FOMC test split (rows = gold, columns = predicted)",
+) -> None:
     """Render each scorer's confusion matrix as a row of annotated heatmaps."""
     fig, axes = plt.subplots(1, len(results), figsize=(4.0 * len(results), 3.8), squeeze=False)
     for ax, result in zip(axes[0], results, strict=True):
@@ -399,9 +450,9 @@ def _write_confusion_png(results: list[Result]) -> None:
                     va="center",
                     color="white" if value > peak / 2 else "black",
                 )
-    fig.suptitle("Confusion matrices on the FOMC test split (rows = gold, columns = predicted)")
+    fig.suptitle(suptitle)
     fig.tight_layout()
-    fig.savefig(_CONFUSION_PNG, dpi=140)
+    fig.savefig(path, dpi=140)
     plt.close(fig)
 
 
@@ -569,11 +620,9 @@ def _write_report(
     """Write the markdown evaluation report covering every scorer that ran."""
     sections = "\n".join(_result_section(r, baseline_acc, majority) for r in results)
     gemini_note = (
-        ""
-        if any("Gemini" in r.name for r in results)
-        else "\nThe Gemini path is wired into this harness (`--with-gemini`, requires "
-        "`CBT_GEMINI_API_KEY`); that run is pending an API key, after which its numbers join the "
-        "table above for a three-way comparison.\n"
+        "\nThe live three-way comparison against the Gemini judge (run with `--with-gemini`) is "
+        "written separately to `gemini-head-to-head.md` so this keyless report stays reproducible "
+        "with no API key.\n"
     )
     _REPORT.write_text(
         f"""# Tone scorer evaluation
@@ -617,6 +666,153 @@ the model; the classifier and the Gemini judge are the stronger signals layered 
     )
 
 
+def _write_gemini_report(
+    *,
+    eval_n: int,
+    requested: int,
+    sampled: bool,
+    seed: int,
+    results: list[Result],
+    majority: str,
+    baseline_acc: float,
+    gem_vs_clf: Significance,
+) -> None:
+    """Write the live three-way (Gemini vs classifier vs lexicon) head-to-head report."""
+    sections = "\n".join(_result_section(r, baseline_acc, majority) for r in results)
+    gemini = next(r for r in results if "Gemini" in r.name)
+    classifier = next(r for r in results if "classifier" in r.name.lower())
+    scope = (
+        f"a deterministic random sample of {eval_n} test sentences (seed {seed})"
+        if sampled
+        else f"all {eval_n} test sentences"
+    )
+    partial = (
+        ""
+        if eval_n == requested
+        else f"\n**Partial run:** the API stopped after {eval_n} of {requested} requested "
+        "sentences (likely a rate or quota limit); all three scorers are compared on exactly the "
+        f"{eval_n} sentences Gemini scored, so the comparison stays fair.\n"
+    )
+    lead = "leads" if gemini.macro_f1 > classifier.macro_f1 else "does not lead"
+    sig_word = "significant" if gem_vs_clf.mcnemar_p < 0.05 else "not significant"
+    _GEMINI_REPORT.write_text(
+        f"""# Live head-to-head: Gemini vs the classifier vs the lexicon
+
+Generated by `scripts/eval_tone.py --with-gemini`. The production Gemini judge (ADR 0007) scored
+head-to-head against the offline supervised classifier (ADR 0013) and the deterministic lexicon
+(ADR 0008) on {scope} from the FOMC benchmark ("Trillion Dollar Words", CC BY-NC 4.0). Unlike the
+keyless `tone-evaluation.md`, this run spends real API calls, so it is reported separately and is
+not part of CI.
+{partial}
+All three scorers are evaluated on the identical sentences. The lexicon's neutral band was tuned on
+the train split (never on this set); the classifier and Gemini are applied unchanged.
+
+## Results
+
+{sections}
+![Confusion matrices](gemini-confusion-matrix.png)
+
+## Gemini vs the offline classifier
+
+On these {eval_n} sentences Gemini {lead} the offline classifier on macro-F1
+({gemini.macro_f1:.3f} vs {classifier.macro_f1:.3f}). A paired McNemar test on the
+{gem_vs_clf.a_only_correct + gem_vs_clf.b_only_correct} sentences where they disagree gives
+chi-square {gem_vs_clf.mcnemar_chi2:.2f}, p = {gem_vs_clf.mcnemar_p:.3g} ({sig_word} at 0.05),
+with a bootstrap 95% CI on the accuracy gap of
+[{_fmt_pct(gem_vs_clf.ci_low)}, {_fmt_pct(gem_vs_clf.ci_high)}].
+
+## Honest reading
+
+This is the production LLM judge measured on the same labeled benchmark as the cheaper scorers, on
+real API calls rather than a stub. The numbers are exactly what the run produced; a sample is noted
+as such, and a partial run is compared only on the sentences actually scored. Gemini is the
+multilingual production signal; the classifier is the keyless offline analogue, and the lexicon is
+the transparent cross-check.
+""",
+        encoding="utf-8",
+    )
+
+
+def _run_gemini_head_to_head(
+    train: list[dict[str, object]],
+    test: list[dict[str, object]],
+    *,
+    sample: int | None,
+    seed: int,
+) -> int:
+    """Score Gemini, the classifier, and the lexicon on the same (optionally sampled) sentences."""
+    rows = test if sample is None else _sampled(test, sample, seed)
+    print(f"  scoring up to {len(rows)} sentences with Gemini (spends API calls) ...")
+    gemini_pred = _gemini_predictions(rows)
+    scored = len(gemini_pred)
+    if scored == 0:
+        print("  Gemini scored no sentences (check the key/quota); no report written")
+        return 1
+    eval_rows = rows[:scored]
+    gold = _gold(eval_rows)
+
+    lexicon = HawkishDovishLexicon()
+    tau = _tune_lexicon_tau(lexicon, train)
+    lexicon_pred = [_lexicon_label(lexicon, _sentence(r), tau) for r in eval_rows]
+    model = ToneClassifier.load_default()
+    classifier_pred = [model.score(_sentence(r)).label for r in eval_rows]
+
+    results = [
+        Result.from_predictions(
+            "Deterministic lexicon",
+            f"net-hawkishness; neutral band tau={tau} tuned on train",
+            gold,
+            lexicon_pred,
+            fired=_lexicon_fired(lexicon, eval_rows),
+        ),
+        Result.from_predictions(
+            "Supervised classifier (TF-IDF + logistic regression)",
+            "the offline FOMC-trained model (ADR 0013), applied unchanged",
+            gold,
+            classifier_pred,
+            fired=scored,
+        ),
+        Result.from_predictions(
+            "Gemini (gemini-2.5-flash)",
+            "LLM-as-judge tone per sentence; MIXED folded into neutral for this 3-class benchmark",
+            gold,
+            gemini_pred,
+            fired=scored,
+        ),
+    ]
+    majority = Counter(_gold(train)).most_common(1)[0][0]
+    baseline_acc = _accuracy(gold, [majority] * scored)
+    gem_vs_clf = _significance(gold, gemini_pred, classifier_pred)
+
+    for result in results:
+        print(f"  {result.name}: accuracy={result.accuracy:.3f} macro-F1={result.macro_f1:.3f}")
+    _write_confusion_png(
+        results,
+        _GEMINI_CONFUSION_PNG,
+        "Three-way confusion on the FOMC benchmark (rows = gold, columns = predicted)",
+    )
+    _write_gemini_report(
+        eval_n=scored,
+        requested=len(rows),
+        sampled=sample is not None,
+        seed=seed,
+        results=results,
+        majority=majority,
+        baseline_acc=baseline_acc,
+        gem_vs_clf=gem_vs_clf,
+    )
+    print(f"wrote {_GEMINI_REPORT.relative_to(_REPO_ROOT)}")
+    return 0
+
+
+def _int_arg(name: str, default: int | None) -> int | None:
+    """Parse an integer CLI flag like ``--sample 150``, or return ``default`` if absent."""
+    args = sys.argv[1:]
+    if name in args:
+        return int(args[args.index(name) + 1])
+    return default
+
+
 def main() -> int:
     """Run the evaluation and write the report and chart."""
     with_gemini = "--with-gemini" in sys.argv[1:]
@@ -627,14 +823,18 @@ def main() -> int:
     mapping_note = _sanity_check_mapping(HawkishDovishLexicon(), train)
     print(f"  {mapping_note}")
 
+    if with_gemini:
+        # The live head-to-head spends API calls; it writes its own report and leaves the
+        # canonical keyless report untouched.
+        return _run_gemini_head_to_head(
+            train, test, sample=_int_arg("--sample", None), seed=_int_arg("--seed", 0) or 0
+        )
+
     lexicon_result = _evaluate_lexicon(train, test)
     classifier_scores = _classifier_scores(test)
     classifier_result = _evaluate_classifier(test, classifier_scores)
     calibration = _calibration(_gold(test), classifier_scores)
     results = [lexicon_result, classifier_result]
-    if with_gemini:
-        print("  scoring with Gemini (this spends API calls) ...")
-        results.append(_evaluate_gemini(test))
 
     significance = _significance(
         _gold(test), list(classifier_result.predictions), list(lexicon_result.predictions)

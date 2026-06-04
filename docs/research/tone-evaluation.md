@@ -118,4 +118,4 @@ zero. It is still a linear bag-of-words model on a hard three-class problem, so 
 baseline, not a claim of state of the art (transformer models reported in the source paper score
 higher). The lexicon remains the transparent, license-clean floor and the auditable cross-check on
 the model; the classifier and the Gemini judge are the stronger signals layered on top.
-The Gemini path is wired into this harness (`--with-gemini`, requires `CBT_GEMINI_API_KEY`); that run is pending an API key, after which its numbers join the table above for a three-way comparison.
+The live three-way comparison against the Gemini judge (run with `--with-gemini`) is written separately to `gemini-head-to-head.md` so this keyless report stays reproducible with no API key.
