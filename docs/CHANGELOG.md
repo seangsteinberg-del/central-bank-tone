@@ -21,6 +21,10 @@ All notable changes to this project are documented in this file. The format foll
 - `scripts/run_live.py` flags: `--no-serve` (fill alongside a running server) and `--no-ocr`
   (skip the Gemini-vision OCR fallback so a bulk fill never stalls on the vision endpoint). The
   live runner now fetches the RSS feed first so the newest speeches land before the bulk backfill.
+- `scripts/run_live.py --concurrency N`: the historical backfill ingests speeches through a thread
+  pool over the I/O-bound Gemini calls (speakers are pre-resolved serially so two workers never
+  race to create the same one), about 9x faster than the sequential fill on a paid key. Default 8,
+  capped at 12. Per-speech failures stay isolated and the fill remains idempotent and resumable.
 
 ### Fixed
 - BIS RSS source: a transient HTTP error on one speech's detail fetch no longer aborts the whole

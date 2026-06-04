@@ -19,7 +19,15 @@ takes a while; re-running resumes where it left off.
 
 Usage::
 
-    uv run python scripts/run_live.py [--limit N] [--years ...] [--no-serve] [--no-ocr] [--serve-only]
+    uv run python scripts/run_live.py [--limit N] [--years ...] [--concurrency N]
+        [--no-serve] [--no-ocr] [--serve-only]
+
+``--concurrency N`` ingests N speeches at once (default 8, capped at 12). Each speech is
+latency-bound on two sequential Gemini calls (~9s), so throughput on a billed key with rate-limit
+headroom comes from running speeches concurrently, not from a faster single call; ``--concurrency
+1`` forces the original sequential path. Speakers are resolved before the fan-out, and each
+speech's ingest and index touch distinct, hash-deduplicated rows, so the concurrent fill is safe
+against the same database the server reads.
 
 ``--serve-only`` skips the fill and just serves the existing corpus (use it to restart the UI on
 new code while a separate ``--no-serve`` fill keeps writing to the same database).
@@ -39,28 +47,41 @@ from __future__ import annotations
 import sys
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 import uvicorn
 
 from cbt_core import (
+    IndexingService,
+    IngestionService,
+    SpeakerService,
     build_gemini_client,
     configure_logging,
     create_engine_from_settings,
     create_immutability_triggers,
+    get_logger,
     get_settings,
 )
 from cbt_web.demo import build_demo_app
 from cbt_worker.runner import run_ingestion
-from cbt_worker.sources.base import BytesProvider, SpeechSource
+from cbt_worker.sources.base import BytesProvider, ScrapedSpeech, SpeechSource
 from cbt_worker.sources.bis import BisSpeechSource, make_pdf_extractor
 from cbt_worker.sources.bis_bulk import BisBulkSpeechSource
+
+_logger = get_logger(__name__)
 
 _HOST = "127.0.0.1"
 _PORT = 8000
 _DEFAULT_LIMIT = 120
 _DEFAULT_YEARS = (2026, 2025, 2024)
+# Each speech is latency-bound (~2 sequential Gemini calls, ~9s), so a paid tier with rate-limit
+# headroom is used by running speeches concurrently, not by a faster single call. Capped so the
+# burst stays under the default SQLAlchemy pool (15) and does not provoke extra 503 throttling.
+_DEFAULT_CONCURRENCY = 8
+_MAX_CONCURRENCY = 12
 _BULK_URL = "https://www.bis.org/speeches/speeches_{year}.zip"
 _USER_AGENT = "cbt-worker/0.1 (central-bank-tone research; contact: ops@example.org)"
 _REQUEST_DELAY_SECONDS = 0.5
@@ -151,12 +172,90 @@ def _years_arg(default: tuple[int, ...]) -> tuple[int, ...]:
     return tuple(int(part) for part in argv[argv.index("--years") + 1].split(",") if part.strip())
 
 
+def _run_ingestion_parallel(
+    sources: list[SpeechSource],
+    *,
+    speaker_service: SpeakerService,
+    ingestion_service: IngestionService,
+    indexing_service: IndexingService,
+    limit_per_source: int,
+    workers: int,
+) -> int:
+    """Ingest concurrently: resolve speakers serially, then fan out ingest+index over a pool.
+
+    Each speech makes its Gemini calls (tone scoring, then one batched embedding) sequentially and
+    is latency-bound, so the lever for a paid tier with rate-limit headroom is concurrency, not a
+    faster single call. Speakers are resolved up front on one thread because ``ensure_speaker`` is a
+    read-then-create with no race guard; the per-speech ingest and index each open their own session
+    and touch distinct rows (deduplicated by source hash), so they parallelize safely on Postgres.
+    A per-speech failure is logged and skipped, never aborting the batch.
+
+    Args:
+        sources: The speech sources to scrape (fetched serially; the fetch is cheap CSV parsing).
+        speaker_service: Resolves or creates each speaker (serially, before the fan-out).
+        ingestion_service: Ingests and analyzes each speech (idempotent by source hash).
+        indexing_service: Chunks and embeds each speech for retrieval (idempotent per speech).
+        limit_per_source: Maximum speeches to fetch from each source.
+        workers: Number of speeches to ingest concurrently.
+
+    Returns:
+        The number of speeches processed without error (including idempotent no-ops for ones
+        already present).
+    """
+    scraped: list[ScrapedSpeech] = []
+    for source in sources:
+        try:
+            scraped.extend(source.fetch(limit=limit_per_source))
+        except Exception:
+            # Batch isolation: a broken source is logged and skipped, never aborting the others.
+            _logger.exception("source_scrape_failed", source=source.name)
+    speaker_ids: dict[tuple[str, str], UUID] = {}
+    for item in scraped:
+        key = (item.speaker_name, item.central_bank.value)
+        if key not in speaker_ids:
+            speaker = speaker_service.ensure_speaker(
+                name=item.speaker_name, central_bank=item.central_bank, role=item.role
+            )
+            speaker_ids[key] = speaker.id
+    print(
+        f"  {len(scraped)} speeches across {len(speaker_ids)} speakers; "
+        f"ingesting with {workers} concurrent workers ..."
+    )
+
+    def _process(item: ScrapedSpeech) -> None:
+        speech = ingestion_service.ingest_speech(
+            speaker_id=speaker_ids[(item.speaker_name, item.central_bank.value)],
+            title=item.title,
+            url=item.url,
+            delivered_at=item.delivered_at,
+            text=item.text,
+            language=item.language,
+        )
+        indexing_service.index_speech(speech.id)
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_process, item): item for item in scraped}
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception:
+                # Batch isolation: log every per-speech failure and continue.
+                _logger.exception("speech_ingest_failed", url=futures[future].url)
+                continue
+            done += 1
+            if done % 25 == 0:
+                print(f"  processed {done}/{len(scraped)} ...")
+    return done
+
+
 def main() -> int:
     """Build the persistent live app, fill it from the archives and the live feed, and serve it."""
     settings = get_settings()
     configure_logging(environment=settings.environment)
     limit = _int_arg("--limit", _DEFAULT_LIMIT)
     years = _years_arg(_DEFAULT_YEARS)
+    concurrency = max(1, min(_int_arg("--concurrency", _DEFAULT_CONCURRENCY), _MAX_CONCURRENCY))
     engine = create_engine_from_settings(settings)
     llm = build_gemini_client(settings)
 
@@ -179,13 +278,23 @@ def main() -> int:
         print(f"  filling up to {limit} speeches/source (Gemini scores and summarizes each) ...")
         transcribe = None if "--no-ocr" in sys.argv else llm.transcribe_image
         sources = _build_sources(years, make_pdf_extractor(transcribe=transcribe))
-        ingested = run_ingestion(
-            sources,
-            speaker_service=services.speaker_service,
-            ingestion_service=services.ingestion_service,
-            indexing_service=services.indexing_service,
-            limit_per_source=limit,
-        )
+        if concurrency > 1:
+            ingested = _run_ingestion_parallel(
+                sources,
+                speaker_service=services.speaker_service,
+                ingestion_service=services.ingestion_service,
+                indexing_service=services.indexing_service,
+                limit_per_source=limit,
+                workers=concurrency,
+            )
+        else:
+            ingested = run_ingestion(
+                sources,
+                speaker_service=services.speaker_service,
+                ingestion_service=services.ingestion_service,
+                indexing_service=services.indexing_service,
+                limit_per_source=limit,
+            )
         if "--no-serve" in sys.argv:
             print(f"  ingested {ingested} new speeches; --no-serve set, not serving")
             return 0
