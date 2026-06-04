@@ -15,6 +15,7 @@ from fastapi import Depends, Request
 from sqlalchemy import Engine
 
 from cbt_core import (
+    CommitteeService,
     IndexingService,
     IngestionService,
     LazyGeminiClient,
@@ -39,6 +40,7 @@ class Services:
     ingestion_service: IngestionService
     indexing_service: IndexingService
     qa_service: QaService
+    committee_service: CommitteeService
 
 
 def build_services(settings: Settings) -> Services:
@@ -63,6 +65,7 @@ def build_services(settings: Settings) -> Services:
         ingestion_service=IngestionService(session_factory, llm, model_id=settings.gemini_model),
         indexing_service=IndexingService(session_factory, llm),
         qa_service=QaService(llm, SpeechRetriever(session_factory), speaker_service),
+        committee_service=CommitteeService(session_factory),
     )
 
 
@@ -99,8 +102,14 @@ def get_qa_service(services: ServicesDep) -> QaService:
     return services.qa_service
 
 
+def get_committee_service(services: ServicesDep) -> CommitteeService:
+    """Return the committee tone-movement service."""
+    return services.committee_service
+
+
 SpeakerServiceDep = Annotated[SpeakerService, Depends(get_speaker_service)]
 ToneServiceDep = Annotated[ToneService, Depends(get_tone_service)]
 IngestionServiceDep = Annotated[IngestionService, Depends(get_ingestion_service)]
 IndexingServiceDep = Annotated[IndexingService, Depends(get_indexing_service)]
 QaServiceDep = Annotated[QaService, Depends(get_qa_service)]
+CommitteeServiceDep = Annotated[CommitteeService, Depends(get_committee_service)]

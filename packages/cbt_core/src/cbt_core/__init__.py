@@ -19,6 +19,8 @@ from cbt_core.domain import (
     Answer,
     CentralBank,
     Citation,
+    CommitteeMovement,
+    MemberMovement,
     RetrievedChunk,
     Speaker,
     Speech,
@@ -56,6 +58,7 @@ from cbt_core.persistence import (
     make_session_factory,
 )
 from cbt_core.services import (
+    CommitteeService,
     IndexingService,
     IngestionService,
     QaService,
@@ -70,6 +73,8 @@ __all__ = [
     "CentralBank",
     "Citation",
     "ClassifierScore",
+    "CommitteeMovement",
+    "CommitteeService",
     "ConfigurationError",
     "EntityNotFoundError",
     "Environment",
@@ -84,6 +89,7 @@ __all__ = [
     "LexiconScore",
     "LlmClient",
     "LlmError",
+    "MemberMovement",
     "OfflineLlmClient",
     "QaService",
     "RetrievedChunk",

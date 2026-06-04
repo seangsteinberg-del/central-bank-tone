@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ speech.title }} - Central Bank Tone{% endblock %}
+{% block content %}
+<a class="back" href="/speakers/{{ speaker.id }}">&larr; {{ speaker.name }}</a>
+
+<header class="speech-detail-head">
+  <div class="speech-detail-meta">
+    <span class="kv">{{ speech.central_bank.value | replace("_", " ") | title }}</span>
+    <span class="kv">{{ speech.delivered_at | format_date }}</span>
+    <span class="kv"><a href="/speakers/{{ speaker.id }}">{{ speaker.name }}</a> &middot; {{ speaker.role }}</span>
+  </div>
+  <h1>{{ speech.title }}</h1>
+  <div class="speech-detail-tone">
+    <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
+    <span class="score-chip {{ speech.score | score_chip }}">model {{ "%+.2f" | format(speech.score) }}</span>
+    <span class="score-chip {{ speech.lexicon_score | score_chip }}">lexicon {{ "%+.2f" | format(speech.lexicon_score) }}</span>
+    {% if speech.needs_review %}<span class="review-badge" title="The model and the lexicon disagreed on this speech">model/lexicon disagree</span>{% endif %}
+    <a class="source-link" href="{{ speech.url }}" target="_blank" rel="noreferrer noopener">read the source &nearr;</a>
+  </div>
+</header>
+
+<section class="panel summary-panel">
+  <h2>In brief</h2>
+  <p class="speech-summary lead">{{ speech.summary }}</p>
+  <p class="muted rationale">{{ speech.rationale }}</p>
+</section>
+
+<div class="section-title"><h2>How the committee has moved</h2>
+  <span class="muted num" style="font-size:.82rem">
+    {{ speech.central_bank.value | replace("_", " ") | title }} &middot; as of {{ movement.as_of | format_date }}
+  </span>
+</div>
+
+<section class="panel">
+  <p class="subject-move">
+    {% if movement.subject.delta is not none %}
+    <strong>{{ speaker.name }}</strong> moved
+    <span class="score-chip {{ movement.subject.delta | score_chip }}">{{ "%+.2f" | format(movement.subject.delta) }}</span>
+    {{ subject_word }} from
+    {{ "%+.2f" | format(movement.subject.previous_score) }} to {{ "%+.2f" | format(movement.subject.current_score) }}
+    versus their previous analyzed speech ({{ movement.subject.previous_at | format_date }}).
+    {% else %}
+    This is <strong>{{ speaker.name }}</strong>'s first analyzed speech, so there is no prior reading to
+    measure a shift against yet.
+    {% endif %}
+  </p>
+
+  <div class="stat-grid two-up">
+    <div class="stat">
+      <div class="value num">{{ "%+.2f" | format(movement.committee_tone) }}</div>
+      <div class="label">Committee standing tone{% if tone_word %} &middot; {{ tone_word }}{% endif %}</div>
+    </div>
+    <div class="stat">
+      {% if movement.overall_delta is not none %}
+      <div class="value num">{{ "%+.2f" | format(movement.overall_delta) }}</div>
+      <div class="label">Overall move &middot; {{ movement.movers }} member{{ "s" if movement.movers != 1 else "" }} {{ overall_word }}</div>
+      {% else %}
+      <div class="value num">&mdash;</div>
+      <div class="label">No prior readings yet to measure an overall move</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <p class="muted" style="font-size:.82rem;margin:6px 0 10px">
+    Each bar shows how far a member shifted since their previous speech, scaled to the largest mover.
+    Hawkish moves point right, dovish moves left.
+  </p>
+  <ul class="move-list">
+    {% for row in rows %}
+    <li class="move-row{% if row.member.is_subject %} subject{% endif %}">
+      <div class="move-who">
+        <a href="/speakers/{{ row.member.speaker.id }}">{{ row.member.speaker.name }}</a>
+        {% if row.member.is_subject %}<span class="chip-subject">this speaker</span>{% endif %}
+        <span class="sub num">now {{ "%+.2f" | format(row.member.current_score) }} &middot; as of {{ row.member.current_at | format_date }} &middot; {{ row.member.observation_count }} obs</span>
+      </div>
+      <div class="move-track" role="img" aria-label="{{ row.member.speaker.name }} {{ row.word }}">
+        <span class="move-center"></span>
+        <span class="move-fill {{ row.side }}" style="width:{{ "%.1f" | format(row.bar_pct / 2) }}%"></span>
+      </div>
+      <div class="move-delta">
+        {% if row.member.delta is not none %}
+        <span class="score-chip {{ row.member.delta | score_chip }}">{{ "%+.2f" | format(row.member.delta) }}</span>
+        {% endif %}
+        <span class="muted">{{ row.word }}</span>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

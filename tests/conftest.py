@@ -24,6 +24,7 @@ from tests._stubs import StubChunkRetriever, StubLlmClient
 
 from cbt_api.dependencies import Services
 from cbt_core import (
+    CommitteeService,
     IndexingService,
     IngestionService,
     QaService,
@@ -199,6 +200,12 @@ def client(services: Services) -> Iterator[TestClient]:
 
 
 @pytest.fixture
+def committee_service(session_factory: sessionmaker[Session]) -> CommitteeService:
+    """A committee tone-movement service bound to the in-memory SQLite engine."""
+    return CommitteeService(session_factory)
+
+
+@pytest.fixture
 def web_client(
     dummy_settings: Settings,
     sqlite_engine: Engine,
@@ -207,6 +214,7 @@ def web_client(
     ingestion_service: IngestionService,
     indexing_service: IndexingService,
     qa_service: QaService,
+    committee_service: CommitteeService,
 ) -> Iterator[TestClient]:
     """A TestClient for the web UI app, backed by the same SQLite-backed services."""
     from cbt_web.app import create_app
@@ -221,6 +229,7 @@ def web_client(
         ingestion_service=ingestion_service,
         indexing_service=indexing_service,
         qa_service=qa_service,
+        committee_service=committee_service,
     )
     with TestClient(app) as test_client:
         yield test_client

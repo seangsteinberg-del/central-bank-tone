@@ -71,7 +71,7 @@
   {% for speech in speeches %}
   <li class="speech-card">
     <div class="speech-head">
-      <a class="speech-title" href="{{ speech.url }}" target="_blank" rel="noreferrer noopener">{{ speech.title }}</a>
+      <a class="speech-title" href="/speeches/{{ speech.id }}">{{ speech.title }}</a>
       <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
       {% if speech.needs_review %}<span class="review-badge" title="The model and the lexicon disagreed on this speech">model/lexicon disagree</span>{% endif %}
     </div>
@@ -79,6 +79,7 @@
       <span class="kv">{{ speech.delivered_at | format_date }}</span>
       <span class="kv">model <b>{{ "%+.2f" | format(speech.score) }}</b></span>
       <span class="kv">lexicon <b>{{ "%+.2f" | format(speech.lexicon_score) }}</b></span>
+      <a class="kv" href="{{ speech.url }}" target="_blank" rel="noreferrer noopener">source &nearr;</a>
     </p>
     <p class="speech-summary">{{ speech.summary }}</p>
   </li>

@@ -95,6 +95,15 @@ All notable changes to this project are documented in this file. The format foll
   with the coverage gate, and `pip-audit`; the Postgres + pgvector integration tests run there.
 - Demo infrastructure: `docker-compose.yml` (pgvector), `scripts/migrate.py`, and a `Makefile`
   (`make demo`, `make eval`, `make gate`).
+- Speech detail page and committee tone-movement read model (ADR 0015): clicking any speech opens
+  `/speeches/{id}` with a concise summary and how the speech's committee has moved as of it. New
+  `cbt_core.CommitteeService.movement_for_speech` builds an immutable, point-in-time
+  `CommitteeMovement`: each member's standing tone and most recent shift (a member counts only once
+  they have spoken, and their "current" reading is the latest on or before the speech, never a later
+  one), the committee's standing tone (mean of current scores), and the overall move (mean of
+  members' individual shifts over the members that have a prior reading, with that count). The page
+  renders a per-member diverging movement bar scaled to the largest mover. Adds the
+  `CommitteeMovement` and `MemberMovement` domain models.
 
 ### Changed
 - Web UI overhaul: the landing page is now a dashboard (thesis hero with the headline finding and a

@@ -76,11 +76,11 @@
   {% for speaker, speech in overview.recent %}
   <li class="speech-card">
     <div class="speech-head">
-      <a class="speech-title" href="/speakers/{{ speaker.id }}">{{ speech.title }}</a>
+      <a class="speech-title" href="/speeches/{{ speech.id }}">{{ speech.title }}</a>
       <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
     </div>
     <p class="speech-meta">
-      <span class="kv">{{ speaker.name }}</span>
+      <a class="kv" href="/speakers/{{ speaker.id }}">{{ speaker.name }}</a>
       <span class="kv">{{ speech.delivered_at | format_date }}</span>
       <span class="kv">model <b>{{ "%+.2f" | format(speech.score) }}</b></span>
       {% if speech.needs_review %}<span class="review-badge">model/lexicon disagree</span>{% endif %}

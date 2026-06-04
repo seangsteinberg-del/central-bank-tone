@@ -6,6 +6,7 @@ repositories, the engine, or the logger directly.
 
 from __future__ import annotations
 
+from cbt_core.services.committee_service import CommitteeService
 from cbt_core.services.indexing_service import IndexingService
 from cbt_core.services.ingestion_service import IngestionService
 from cbt_core.services.qa_service import ChunkRetriever, QaService
@@ -14,6 +15,7 @@ from cbt_core.services.tone_service import ToneService
 
 __all__ = [
     "ChunkRetriever",
+    "CommitteeService",
     "IndexingService",
     "IngestionService",
     "QaService",

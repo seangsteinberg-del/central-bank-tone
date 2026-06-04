@@ -16,8 +16,17 @@ from uuid import UUID
 from fastapi import APIRouter, Form, Request, Response
 from pydantic import ValidationError
 
-from cbt_core import CentralBank, Speaker, Speech, ToneLabel, ToneObservation
+from cbt_core import (
+    CentralBank,
+    CommitteeMovement,
+    MemberMovement,
+    Speaker,
+    Speech,
+    ToneLabel,
+    ToneObservation,
+)
 from cbt_web.dependencies import (
+    CommitteeServiceDep,
     IndexingServiceDep,
     IngestionServiceDep,
     QaServiceDep,
@@ -90,6 +99,59 @@ class CorpusOverview:
     hawkish: list[LeaderRow]
     dovish: list[LeaderRow]
     recent: list[tuple[Speaker, Speech]]
+
+
+@dataclass(frozen=True)
+class MovementRow:
+    """A committee member's movement, with the geometry to draw a diverging movement bar."""
+
+    member: MemberMovement
+    side: str  # "hawk", "dove", "flat" (a measured shift), or "none" (no prior reading)
+    word: str  # "more hawkish", "more dovish", "little changed", or "first reading"
+    magnitude: float  # absolute size of the shift
+    bar_pct: float  # bar width as a percentage of the largest shift in the committee
+
+
+# A shift smaller than this is treated as flat rather than directional (rounding noise).
+_FLAT_BAND = 0.005
+
+
+def _move_presentation(member: MemberMovement, max_abs: float) -> MovementRow:
+    """Turn a member's signed shift into a labelled, scaled movement row for the template."""
+    delta = member.delta
+    if delta is None:
+        return MovementRow(
+            member=member, side="none", word="first reading", magnitude=0.0, bar_pct=0.0
+        )
+    magnitude = abs(delta)
+    if delta > _FLAT_BAND:
+        side, word = "hawk", "more hawkish"
+    elif delta < -_FLAT_BAND:
+        side, word = "dove", "more dovish"
+    else:
+        side, word = "flat", "little changed"
+    bar_pct = round(magnitude / max_abs * 100.0, 1) if max_abs > 0 else 0.0
+    return MovementRow(
+        member=member, side=side, word=word, magnitude=round(magnitude, 4), bar_pct=bar_pct
+    )
+
+
+def _movement_rows(movement: CommitteeMovement) -> list[MovementRow]:
+    """Build the movement rows for a committee, scaled to its largest individual shift."""
+    deltas = [abs(member.delta) for member in movement.members if member.delta is not None]
+    max_abs = max(deltas) if deltas else 0.0
+    return [_move_presentation(member, max_abs) for member in movement.members]
+
+
+def _direction_word(delta: float | None, *, hawk: str, dove: str, flat: str) -> str | None:
+    """Map a signed shift to a direction phrase, or ``None`` if there is no shift to describe."""
+    if delta is None:
+        return None
+    if delta > _FLAT_BAND:
+        return hawk
+    if delta < -_FLAT_BAND:
+        return dove
+    return flat
 
 
 def _matches(speaker: Speaker, query: str) -> bool:
@@ -247,6 +309,49 @@ def speaker_detail(
             "latest_tone": observations[-1].tone if observations else None,
             "latest_score": observations[-1].score if observations else None,
             "speeches": speeches,
+        },
+    )
+
+
+@router.get("/speeches/{speech_id}")
+def speech_detail(
+    request: Request,
+    speech_id: UUID,
+    speakers: SpeakerServiceDep,
+    ingestion: IngestionServiceDep,
+    committee: CommitteeServiceDep,
+) -> Response:
+    """Render one speech: a concise summary and how its whole committee has moved as of it."""
+    speech = ingestion.get_speech(speech_id)
+    speaker = speakers.get_speaker(speech.speaker_id)
+    movement = committee.movement_for_speech(speech_id)
+    rows = _movement_rows(movement)
+    return templates.TemplateResponse(
+        request,
+        "speech.html",
+        {
+            "speech": speech,
+            "speaker": speaker,
+            "movement": movement,
+            "rows": rows,
+            "subject_word": _direction_word(
+                movement.subject.delta,
+                hawk="more hawkish",
+                dove="more dovish",
+                flat="little changed",
+            ),
+            "overall_word": _direction_word(
+                movement.overall_delta,
+                hawk="shifted hawkish",
+                dove="shifted dovish",
+                flat="held steady",
+            ),
+            "tone_word": _direction_word(
+                movement.committee_tone,
+                hawk="leans hawkish",
+                dove="leans dovish",
+                flat="balanced",
+            ),
         },
     )
 

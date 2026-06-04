@@ -20,6 +20,7 @@ from fastapi import FastAPI
 
 from cbt_core import (
     CentralBank,
+    CommitteeService,
     IndexingService,
     IngestionService,
     InMemoryChunkRetriever,
@@ -144,6 +145,7 @@ def build_demo_services(speeches: list[SeedSpeech], *, db_path: str | None = Non
         ingestion_service=ingestion,
         indexing_service=indexer,
         qa_service=QaService(llm, retriever, speaker_service, max_distance=_DEMO_MAX_DISTANCE),
+        committee_service=CommitteeService(session_factory),
     )
 
 

@@ -7,6 +7,7 @@ deep paths.
 from __future__ import annotations
 
 from cbt_core.domain.analysis import ToneAnalysis
+from cbt_core.domain.committee import CommitteeMovement, MemberMovement
 from cbt_core.domain.models import Speaker, ToneObservation
 from cbt_core.domain.qa import Answer, Citation, RetrievedChunk
 from cbt_core.domain.registry import CentralBank
@@ -17,6 +18,8 @@ __all__ = [
     "Answer",
     "CentralBank",
     "Citation",
+    "CommitteeMovement",
+    "MemberMovement",
     "RetrievedChunk",
     "Speaker",
     "Speech",

@@ -130,6 +130,81 @@ def test_methodology_page_reports_measured_accuracy(web_client: TestClient) -> N
     assert "/static/img/tone-vs-rates.png" in response.text  # the embedded research chart
 
 
+def _ingest_named(
+    client: TestClient, speaker_id: str, *, title: str, url: str, delivered_on: str, text: str
+) -> None:
+    """Ingest a second, distinct speech for a speaker (a unique text avoids the dedup no-op)."""
+    response = client.post(
+        "/ui/ingest",
+        data={
+            "speaker_id": speaker_id,
+            "title": title,
+            "url": url,
+            "delivered_on": delivered_on,
+            "text": text,
+            "language": "en",
+        },
+    )
+    assert response.status_code == 200
+    assert "Ingested and indexed" in response.text
+
+
+def _latest_speech_id(client: TestClient, speaker_id: str) -> str:
+    """Return the most recent speech id from a speaker page (speeches are listed newest first)."""
+    page = client.get(f"/speakers/{speaker_id}").text
+    assert "/speeches/" in page
+    return page.split("/speeches/", 1)[1].split('"', 1)[0]
+
+
+@pytest.mark.web
+def test_speaker_speech_title_links_to_its_detail_page(web_client: TestClient) -> None:
+    speaker_id = _register(web_client)
+    _ingest(web_client, speaker_id)
+    response = web_client.get(f"/speakers/{speaker_id}")
+    assert response.status_code == 200
+    assert "/speeches/" in response.text  # the speech title is a link into the detail page
+
+
+@pytest.mark.web
+def test_speech_detail_shows_summary_and_committee_movement(web_client: TestClient) -> None:
+    speaker_id = _register(web_client)
+    _ingest(web_client, speaker_id)
+    speech_id = _latest_speech_id(web_client, speaker_id)
+    response = web_client.get(f"/speeches/{speech_id}")
+    assert response.status_code == 200
+    assert "In brief" in response.text  # the concise-summary section
+    assert "How the committee has moved" in response.text
+    assert "Committee standing tone" in response.text
+    assert "first analyzed speech" in response.text  # a single reading has no prior shift
+    assert "move-track" in response.text  # the per-member movement bar is rendered
+
+
+@pytest.mark.web
+def test_speech_detail_draws_member_shift_with_a_prior_reading(web_client: TestClient) -> None:
+    speaker_id = _register(web_client)
+    _ingest(web_client, speaker_id)  # delivered 2026-01-15
+    _ingest_named(
+        web_client,
+        speaker_id,
+        title="A later remark",
+        url="https://example.org/speech/2",
+        delivered_on="2026-03-20",
+        text="inflation has eased so we can be patient on any further policy moves",
+    )
+    speech_id = _latest_speech_id(web_client, speaker_id)  # the later (most recent) speech
+    response = web_client.get(f"/speeches/{speech_id}")
+    assert response.status_code == 200
+    assert "move-fill" in response.text  # a measured shift bar is drawn against the prior reading
+    assert "versus their previous analyzed speech" in response.text  # the subject-move callout
+
+
+@pytest.mark.web
+def test_speech_detail_unknown_returns_404_page(web_client: TestClient) -> None:
+    response = web_client.get(f"/speeches/{_UNKNOWN}")
+    assert response.status_code == 404
+    assert "Not found" in response.text
+
+
 @pytest.mark.web
 def test_speaker_detail_unknown_returns_404_page(web_client: TestClient) -> None:
     response = web_client.get(f"/speakers/{_UNKNOWN}")
@@ -246,6 +321,7 @@ def failing_web_client(
     tone_service: object,
     ingestion_service: object,
     indexing_service: object,
+    committee_service: object,
     id_factory: IdFactory,
 ) -> Iterator[TestClient]:
     """A web client whose Q&A service raises an LlmError, to render the server-error page."""
@@ -262,6 +338,7 @@ def failing_web_client(
         ingestion_service=ingestion_service,  # type: ignore[arg-type]  # unused on this path
         indexing_service=indexing_service,  # type: ignore[arg-type]  # unused on this path
         qa_service=qa,
+        committee_service=committee_service,  # type: ignore[arg-type]  # unused on this path
     )
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
