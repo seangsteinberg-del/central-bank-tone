@@ -8,6 +8,7 @@ codes and the rendered content rather than a JSON shape.
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -16,11 +17,59 @@ from pydantic import SecretStr
 from sqlalchemy import Engine
 from tests._stubs import StubChunkRetriever
 
-from cbt_core import QaService, Settings, SpeakerService
+from cbt_core import (
+    CentralBank,
+    QaService,
+    Settings,
+    SpeakerService,
+    ToneLabel,
+    ToneObservation,
+)
 from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.exceptions import LlmError
 from cbt_core.services._support import IdFactory
 from cbt_core.settings import Environment
+from cbt_web.views import (
+    MonthValue,
+    PolicyMonitorRow,
+    Spark,
+    _bank_stance_series,
+    _movers,
+    _spread_chart,
+    _stance_delta,
+)
+
+
+def _obs(score: float, year: int, month: int) -> ToneObservation:
+    """Build a tone observation at a month, for unit-testing the stance-series maths directly."""
+    return ToneObservation(
+        id=UUID(int=0),
+        speaker_id=UUID(int=0),
+        observed_at=datetime(year, month, 15, tzinfo=UTC),
+        tone=ToneLabel.NEUTRAL,
+        score=score,
+        source_sha256="a" * 64,
+    )
+
+
+def _mrow(bank: CentralBank, code: str, now: float, delta_1m: float | None) -> PolicyMonitorRow:
+    """Build a minimal monitor row for unit-testing the movers/spread aggregation."""
+    return PolicyMonitorRow(
+        bank=bank,
+        label=bank.value.replace("_", " ").title(),
+        code=code,
+        palette=0,
+        now=now,
+        delta_1m=delta_1m,
+        delta_3m=None,
+        spark=Spark(width=240.0, height=30.0, zero_y=15.0, polyline="", last_x=0.0, last_y=0.0),
+        months=3,
+        hawk_count=1,
+        dove_count=0,
+        divided=False,
+        last_spoke=None,
+    )
+
 
 _UNKNOWN = str(UUID(int=999))
 
@@ -101,12 +150,13 @@ def test_speaker_detail_shows_tone_timeline_and_speech(web_client: TestClient) -
 
 
 @pytest.mark.web
-def test_dashboard_shows_corpus_stats_and_recent_speech(web_client: TestClient) -> None:
+def test_dashboard_shows_policy_monitor_and_recent_speech(web_client: TestClient) -> None:
     speaker_id = _register(web_client)
     _ingest(web_client, speaker_id)
     response = web_client.get("/")
     assert response.status_code == 200
-    assert "Speeches analyzed" in response.text  # the stat strip
+    assert "Policy monitor" in response.text  # the monitor matrix is the dashboard hero
+    assert "Most hawkish" in response.text  # the market-KPI strip replaced the vanity stats
     assert "Recently analyzed" in response.text  # the recent-speeches section
     assert "On the outlook" in response.text  # the ingested speech surfaced on the dashboard
 
@@ -225,6 +275,212 @@ def test_leaderboard_fragment_shows_only_the_selected_banks_speakers(
 def test_leaderboard_rejects_unknown_bank_with_422(web_client: TestClient) -> None:
     response = web_client.get("/ui/leaderboard", params={"bank": "not_a_bank"})
     assert response.status_code == 422
+
+
+@pytest.mark.web
+def test_dashboard_charts_per_bank_tone_index_over_time(web_client: TestClient) -> None:
+    fed = _register(web_client, "Jerome Powell", "federal_reserve")
+    # Two months for one bank, so its tone-index line is a real polyline, not a lone dot.
+    _ingest_named(
+        web_client,
+        fed,
+        title="January remarks",
+        url="https://example.org/f/jan",
+        delivered_on="2026-01-10",
+        text="we will keep policy restrictive to bring inflation down",
+    )
+    _ingest_named(
+        web_client,
+        fed,
+        title="March remarks",
+        url="https://example.org/f/mar",
+        delivered_on="2026-03-12",
+        text="inflation has eased so we can be patient and gradual from here",
+    )
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "Policy divergence over time" in response.text  # the per-bank tone-index chart
+    assert "bank-history" in response.text  # the multi-line divergence SVG
+    assert 'class="bank-line"' in response.text  # two months render as a connected line
+    assert "bank-line-label" in response.text  # each line is named on the chart, not colour-only
+    assert "FED" in response.text  # the Fed line's end-of-line desk code label
+
+
+@pytest.mark.web
+def test_divergence_chart_leaves_honest_gaps_when_a_bank_is_silent_a_month(
+    web_client: TestClient,
+) -> None:
+    fed = _register(web_client, "Jerome Powell", "federal_reserve")
+    ecb = _register(web_client, "Christine Lagarde", "ecb")
+    # The Fed speaks in January and March; the ECB only in February. The shared month axis spans
+    # all three, so each bank's line skips the months it was silent rather than inventing a value.
+    _ingest_named(
+        web_client,
+        fed,
+        title="Fed January",
+        url="https://example.org/f/jan",
+        delivered_on="2026-01-10",
+        text="we will keep policy restrictive to bring inflation down",
+    )
+    _ingest_named(
+        web_client,
+        ecb,
+        title="ECB February",
+        url="https://example.org/e/feb",
+        delivered_on="2026-02-14",
+        text="the council sees room to ease as growth slows and prices cool",
+    )
+    _ingest_named(
+        web_client,
+        fed,
+        title="Fed March",
+        url="https://example.org/f/mar",
+        delivered_on="2026-03-12",
+        text="inflation has eased so we can be patient and gradual from here",
+    )
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "Policy divergence over time" in response.text
+    # Both banks are charted, each as its own labelled line, over the shared three-month axis.
+    assert "FED" in response.text  # the Fed line's end-of-line code
+    assert "ECB" in response.text  # the ECB line's end-of-line code
+
+
+@pytest.mark.web
+def test_dashboard_surfaces_flagged_model_lexicon_disagreements(web_client: TestClient) -> None:
+    fed = _register(web_client, "Jerome Powell", "federal_reserve")
+    # The stub model scores every speech +0.60 (hawkish); this text is purely dovish, so the
+    # deterministic lexicon scores it negative and the opposite-sign cross-check flags the split.
+    _ingest_named(
+        web_client,
+        fed,
+        title="A dovish pivot",
+        url="https://example.org/f/dove",
+        delivered_on="2026-02-01",
+        text="we expect rate cuts and policy easing as disinflation and downside risks broaden",
+    )
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "Model / lexicon disagreements" in response.text  # the review panel
+    assert "A dovish pivot" in response.text  # the flagged speech is listed for review
+    assert 'id="flagged"' in response.text  # the flagged stat links down to the panel
+
+
+@pytest.mark.web
+def test_committee_sparkline_links_to_the_speaker_page(web_client: TestClient) -> None:
+    _two_bank_corpus(web_client)
+    response = web_client.get("/ui/leaderboard", params={"bank": "federal_reserve"})
+    assert response.status_code == 200
+    assert "spark-link" in response.text  # the inline sparkline is itself a deep link
+    assert 'href="/speakers/' in response.text  # pointing at the member's speaker page
+
+
+@pytest.mark.web
+def test_every_central_bank_has_a_distinct_chart_colour_and_code() -> None:
+    # The divergence chart assigns each bank a stable palette slot by registry order. If the
+    # registry ever grows past the palette, two banks would silently share a colour. Assert the
+    # limit holds here so it fails loudly in CI rather than degrading the chart (CLAUDE.md s.3).
+    from cbt_core import CentralBank
+    from cbt_web.views import _BANK_PALETTE, _PALETTE_SIZE, _bank_code
+
+    banks = list(CentralBank)
+    assert len(banks) <= _PALETTE_SIZE  # the palette covers the whole registry, no silent reuse
+    slots = [_BANK_PALETTE[bank] for bank in banks]
+    assert len(set(slots)) == len(banks)  # every bank maps to a distinct colour slot
+    assert all(0 <= slot < _PALETTE_SIZE for slot in slots)
+    assert all(_bank_code(bank) for bank in banks)  # every bank has a non-empty desk code
+
+
+@pytest.mark.web
+def test_dashboard_leads_with_the_policy_monitor_and_market_kpis(web_client: TestClient) -> None:
+    _two_bank_corpus(web_client)
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "Policy monitor" in response.text  # the matrix is the hero, not the vanity stats
+    assert "monitor-board" in response.text
+    assert "Most hawkish" in response.text  # the market-KPI strip
+    assert "Most dovish" in response.text
+    assert "/ui/monitor?sort=delta_1m" in response.text  # the columns are sortable
+
+
+@pytest.mark.web
+def test_monitor_fragment_sorts_and_rejects_an_unknown_key(web_client: TestClient) -> None:
+    _two_bank_corpus(web_client)
+    ok = web_client.get("/ui/monitor", params={"sort": "delta_1m"})
+    assert ok.status_code == 200
+    assert "monitor-board" in ok.text
+    bad = web_client.get("/ui/monitor", params={"sort": "not_a_column"})
+    assert bad.status_code == 422
+
+
+@pytest.mark.web
+def test_monitor_shows_an_em_dash_when_there_is_no_prior_reading(web_client: TestClient) -> None:
+    speaker_id = _register(web_client)
+    _ingest(web_client, speaker_id)  # one speech, so there is no month to compare against
+    response = web_client.get("/ui/monitor")
+    assert response.status_code == 200
+    assert "—" in response.text  # the em dash: an honest "no prior reading", not a fake 0.00
+
+
+@pytest.mark.web
+def test_spread_fragment_builds_a_pair_and_rejects_an_unknown_bank(web_client: TestClient) -> None:
+    _two_bank_corpus(web_client)
+    ok = web_client.get("/ui/spread", params={"a": "federal_reserve", "b": "ecb"})
+    assert ok.status_code == 200
+    assert "spread-board" in ok.text
+    assert "spread-chart" in ok.text  # the relative-value chart rendered
+    bad = web_client.get("/ui/spread", params={"a": "not_a_bank", "b": "ecb"})
+    assert bad.status_code == 422
+
+
+def test_bank_stance_series_carries_each_members_latest_reading_forward() -> None:
+    # One member speaks in January (+0.20) and again in March (+0.60), silent in February.
+    series = _bank_stance_series([[_obs(0.2, 2026, 1), _obs(0.6, 2026, 3)]])
+    values = {mv.key: mv.value for mv in series}
+    assert sorted(values) == [(2026, 1), (2026, 2), (2026, 3)]  # February is filled, not skipped
+    assert (
+        values[(2026, 2)] == 0.2
+    )  # February carries January's reading forward (the standing tone)
+    assert values[(2026, 3)] == 0.6
+
+
+def test_stance_delta_is_none_without_a_reading_that_far_back() -> None:
+    series = _bank_stance_series([[_obs(0.6, 2026, 3)]])  # a single month
+    assert _stance_delta(series, 1) is None  # honest "no comparison", never a fabricated 0.00
+    assert _stance_delta(series, 3) is None
+
+
+def test_stance_delta_measures_the_one_and_three_month_change() -> None:
+    series = _bank_stance_series([[_obs(-0.2, 2026, 1), _obs(0.0, 2026, 2), _obs(0.5, 2026, 4)]])
+    assert _stance_delta(series, 1) == 0.5  # April 0.5 minus March 0.0 (carried from February)
+    assert _stance_delta(series, 3) == 0.7  # April 0.5 minus January -0.2
+
+
+def test_movers_orders_by_size_and_labels_the_direction() -> None:
+    rows = [
+        _mrow(CentralBank.ECB, "ECB", now=0.10, delta_1m=0.05),
+        _mrow(CentralBank.BANK_OF_ENGLAND, "BoE", now=0.50, delta_1m=0.40),
+        _mrow(CentralBank.FEDERAL_RESERVE, "FED", now=-0.30, delta_1m=-0.45),
+    ]
+    movers = _movers(rows)
+    assert [m.code for m in movers] == ["FED", "BoE", "ECB"]  # largest absolute move first
+    assert movers[0].side == "dove"
+    assert movers[0].word == "turning dovish"  # crossed down from +0.15
+    assert movers[1].side == "hawk"
+    assert movers[1].word == "extending hawkish"  # was already at +0.10
+    assert movers[0].prev == 0.15  # now (-0.30) minus delta (-0.45)
+
+
+def test_spread_chart_reads_a_minus_b_and_describes_its_direction() -> None:
+    series_a = [MonthValue((2026, m), v) for m, v in [(1, 0.1), (2, 0.2), (3, 0.4), (4, 0.5)]]
+    series_b = [MonthValue((2026, m), 0.1) for m in (1, 2, 3, 4)]
+    chart = _spread_chart(series_a, series_b, CentralBank.FEDERAL_RESERVE, CentralBank.ECB, [])
+    assert chart is not None
+    assert chart.now == 0.4  # 0.5 minus 0.1
+    assert chart.a_code == "FED"
+    assert chart.b_code == "ECB"
+    assert "FED is 0.40 above ECB" in chart.summary
+    assert "widening" in chart.summary  # the spread was 0.0 three months earlier
 
 
 @pytest.mark.web

@@ -35,6 +35,18 @@
   --mixed: #d6a44b;
   --mixed-soft: rgba(214, 164, 75, 0.15);
 
+  /* Categorical line palette for the per-bank divergence chart. Tuned for the dark canvas and
+     kept distinct from the semantic hawk/dove hues (those are carried by the chart's shaded
+     bands, not the lines). Cycles when there are more banks than colours. */
+  --cat-0: #d6a44b;
+  --cat-1: #4fb3a6;
+  --cat-2: #b48cd9;
+  --cat-3: #e093b3;
+  --cat-4: #7cc88b;
+  --cat-5: #6aa6dd;
+  --cat-6: #e08158;
+  --cat-7: #a7aeba;
+
   --rail-w: 244px;
   --maxw: 1140px;
   --radius: 10px;
@@ -57,6 +69,8 @@ body {
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-2); text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
 .mono { font-family: var(--mono); }
@@ -329,6 +343,8 @@ button:disabled { opacity: 0.55; cursor: progress; }
   text-transform: uppercase;
 }
 .stat.flag .value { color: var(--mixed); }
+a.stat { transition: border-color 0.12s ease; cursor: pointer; }
+a.stat:hover { text-decoration: none; border-color: var(--accent-line); }
 
 /* ------------------------------------------------------------ Cards / panels */
 .panel {
@@ -423,7 +439,11 @@ button:disabled { opacity: 0.55; cursor: progress; }
 .committee-row .score-chip { justify-self: end; }
 .faint-note { font-size: 0.78rem; color: var(--faint); }
 
-/* Inline tone-history sparklines (committee rows) */
+/* Inline tone-history sparklines (committee rows); the whole sparkline links to the speaker */
+.spark-link { display: block; min-width: 0; }
+.spark-link:hover { text-decoration: none; }
+.spark-link:hover .spark-line { stroke-width: 2.1; }
+.spark-link:hover .spark-dot { r: 3.2; }
 .spark { width: 100%; height: 30px; display: block; }
 .spark-zero { stroke: var(--line-2); stroke-width: 1; }
 .spark-line { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
@@ -537,6 +557,116 @@ button:disabled { opacity: 0.55; cursor: progress; }
 .band-chart .band-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 1; }
 .band-chart .axis-label { fill: var(--faint); font-size: 11px; font-family: var(--mono); }
 .band-chart .axis-label.tick { fill: var(--muted); }
+
+/* Per-bank policy-divergence chart (one coloured tone-index line per bank; colour set inline
+   from the categorical palette so the line, its dots, its end label, and the legend swatch always
+   agree). Each line is named on the chart at its latest point, so identity never rests on colour
+   alone. */
+.bank-history .bank-line { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.bank-history .bank-line-dot { stroke: var(--panel); stroke-width: 0.8; }
+.bank-history .bank-line-dot.last { stroke: var(--head); stroke-width: 1.2; }
+.bank-history .bank-line-leader { stroke-width: 0.75; opacity: 0.45; }
+.bank-history .bank-line-label { font-family: var(--mono); font-size: 9px; font-weight: 600; }
+.bank-history-legend { gap: 8px 14px; }
+.bank-history-legend .legend-key { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.bank-history-legend .legend-key:hover { color: var(--ink); text-decoration: none; }
+.bank-history-legend .legend-key .swatch { margin-right: 0; }
+
+/* ------------------------------------------------------------ Market KPI strip */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(184px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.kpi { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 16px; transition: border-color 0.12s ease; }
+.kpi[href]:hover { border-color: var(--accent-line); text-decoration: none; }
+.kpi-label { color: var(--faint); font-family: var(--mono); font-size: 0.66rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+.kpi-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 7px 0 3px; }
+.kpi-bank { color: var(--head); font-weight: 600; font-size: 1.3rem; letter-spacing: -0.01em; font-family: var(--mono); }
+.kpi-value { font-family: var(--mono); font-size: 1.02rem; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.kpi-value.pos { color: var(--hawkish); }
+.kpi-value.neg { color: var(--dovish); }
+.kpi-value.zero { color: var(--neutral); }
+.kpi-sub { color: var(--muted); font-size: 0.78rem; }
+
+/* ------------------------------------------------------- Policy Monitor matrix */
+.monitor-board { margin-bottom: 4px; }
+.monitor-scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.monitor { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 660px; }
+.monitor thead th { background: var(--panel-2); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line-2); color: var(--faint); font-family: var(--mono); font-weight: 600; font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+.monitor thead th a { color: var(--muted); }
+.monitor thead th a:hover { color: var(--ink); text-decoration: none; }
+.monitor thead th.sorted a { color: var(--accent); }
+.monitor thead th.sorted a::after { content: " \25be"; }
+.monitor thead th.col-num { text-align: right; }
+.monitor thead .axis-hint { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--faint); margin-left: 6px; }
+.monitor tbody td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.monitor tbody tr:last-child td { border-bottom: 0; }
+.monitor tbody tr:hover td { background: rgba(255, 255, 255, 0.015); }
+.monitor td.col-num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+.monitor .mono-bank { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--ink); font-family: var(--mono); }
+.monitor .mono-bank:hover { color: var(--accent); text-decoration: none; }
+.monitor .mono-mark { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.monitor .mono-name { display: block; color: var(--muted); font-size: 0.74rem; margin-top: 1px; }
+.monitor .split-flag { color: var(--accent); }
+.monitor .col-stance { width: 184px; }
+.monitor .col-stance .move-track { height: 14px; }
+.monitor .col-trend { width: 132px; }
+.monitor .mono-spark { width: 120px; height: 26px; display: block; }
+.monitor .mono-spark .spark-line { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.monitor .mono-spark .spark-dot { stroke: var(--panel); stroke-width: 0.8; }
+.monitor .delta.up { color: var(--hawkish); }
+.monitor .delta.down { color: var(--dovish); }
+.monitor .delta.flat { color: var(--muted); }
+.monitor .cmte .cmte-h { color: var(--hawkish); }
+.monitor .cmte .cmte-d { color: var(--dovish); }
+.monitor-foot { margin: 8px 2px 0; }
+
+/* --------------------------------------------------------- Who's turning (movers) */
+.mover-list { list-style: none; margin: 0; padding: 0; }
+.mover-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 1.5fr) minmax(118px, auto) minmax(120px, auto); align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.mover-row:first-child { border-top: 0; }
+.mover-bank { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--ink); font-family: var(--mono); }
+.mover-bank:hover { color: var(--accent); text-decoration: none; }
+.mover-bank .mono-mark { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.mover-bank .sub { color: var(--faint); font-family: var(--sans); font-weight: 400; font-size: 0.76rem; }
+.mover-from { color: var(--muted); font-family: var(--mono); text-align: right; white-space: nowrap; }
+.mover-word { font-family: var(--mono); font-size: 0.78rem; text-align: right; }
+.mover-word.hawk { color: var(--hawkish); }
+.mover-word.dove { color: var(--dovish); }
+@media (max-width: 620px) {
+  .mover-row { grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+  .mover-from, .mover-word { text-align: left; }
+  .mover-row .move-track { grid-column: 1 / -1; }
+}
+
+/* ----------------------------------------------------- Relative-value spread */
+.spread-tabs { margin-bottom: 12px; }
+.spread-read { font-size: 0.92rem; color: var(--ink); margin-bottom: 10px; font-family: var(--mono); }
+.spread-chart { width: 100%; height: auto; display: block; }
+.spread-chart .grid-line { stroke: var(--line); stroke-width: 1; }
+.spread-chart .zero-line { stroke: var(--line-2); stroke-width: 1.5; }
+.spread-chart .spread-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.spread-chart .spread-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 1; }
+.spread-chart .spread-dot.last { stroke: var(--head); stroke-width: 1.5; }
+.spread-chart .spread-now { fill: var(--accent-2); font-size: 12px; font-weight: 600; }
+.spread-chart .axis-label { fill: var(--faint); font-size: 11px; font-family: var(--mono); }
+.spread-chart .axis-label.tick { fill: var(--muted); }
+
+/* Model / lexicon disagreement panel */
+.split-list { list-style: none; margin: 0; padding: 0; }
+.split-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(48px, auto); align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.split-row:first-child { border-top: 0; }
+.split-row .who { min-width: 0; }
+.split-row .who > a { font-weight: 600; color: var(--ink); }
+.split-row .who > a:hover { color: var(--accent); }
+.split-row .who .sub { display: block; color: var(--muted); font-family: var(--mono); font-size: 0.74rem; margin-top: 1px; }
+.split-row .who .sub a { color: var(--muted); }
+.split-row .who .sub a:hover { color: var(--accent); }
+.split-scores { display: flex; align-items: center; gap: 8px; font-family: var(--mono); }
+.split-vs { color: var(--faint); }
+.split-gap { justify-self: end; color: var(--accent); font-weight: 600; font-size: 0.86rem; }
+@media (max-width: 560px) {
+  .split-row { grid-template-columns: 1fr; gap: 6px; }
+  .split-scores, .split-gap { justify-self: start; }
+  .split-scores { font-size: 0.75rem; white-space: nowrap; }
+}
 
 /* ---------------------------------------------------------------- Speech cards */
 .speech-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }

@@ -7,6 +7,16 @@ All notable changes to this project are documented in this file. The format foll
 ## [Unreleased]
 
 ### Added
+- Dashboard Policy Monitor, a macro-desk redesign of the landing page. The hero is now a sortable
+  bank-by-bank matrix (current committee stance with a diverging move-track, 1-month and 3-month
+  change, a 6-month inline sparkline, and the hawk/dove committee split), with server-rendered
+  sorting (`GET /ui/monitor?sort=...`, a 422 on an unknown key). Above it sits a market-style KPI
+  strip; below it a "who's turning" movers panel (the largest stance shifts over the trailing
+  band) and a relative-value tone-spread chart between any two banks
+  (`GET /ui/spread?a=...&b=...`, a 422 on an unknown bank). A policy-divergence-over-time chart and
+  the per-bank committee view read one canonical per-bank committee-stance series, so a bank's
+  "now" on the monitor equals its latest point on the divergence chart. The pooled corpus-aggregate
+  band chart is demoted beneath these. Committee sparklines link through to the speaker page.
 - Web UI: a dark research-desk theme (left rail with grouped nav and an active-item indicator, a
   sticky top bar with a breadcrumb and live clock, monospace metadata, metric cards).
 - Dashboard: a per-bank committee view. A "Policy stance by bank" overview ranks each bank's

@@ -37,13 +37,15 @@
           <a href="/speakers/{{ row.speaker.id }}">{{ row.speaker.name }}</a>
           <span class="sub">{{ row.speaker.role }} &middot; {{ row.count }} obs</span>
         </div>
-        <svg class="spark" viewBox="0 0 {{ row.spark.width }} {{ row.spark.height }}"
-             preserveAspectRatio="xMidYMid meet" role="img"
-             aria-label="{{ row.speaker.name }} tone history, latest {{ '%+.2f' | format(row.score) }}">
-          <line class="spark-zero" x1="0" y1="{{ row.spark.zero_y }}" x2="{{ row.spark.width }}" y2="{{ row.spark.zero_y }}"/>
-          {% if row.count > 1 %}<polyline class="spark-line {{ row.tone | tone_class }}" points="{{ row.spark.polyline }}"/>{% endif %}
-          <circle class="spark-dot {{ row.tone | tone_class }}" cx="{{ row.spark.last_x }}" cy="{{ row.spark.last_y }}" r="2.6"/>
-        </svg>
+        <a class="spark-link" href="/speakers/{{ row.speaker.id }}"
+           aria-label="Open {{ row.speaker.name }} tone history, latest {{ '%+.2f' | format(row.score) }}">
+          <svg class="spark" viewBox="0 0 {{ row.spark.width }} {{ row.spark.height }}"
+               preserveAspectRatio="xMidYMid meet" role="img" aria-hidden="true">
+            <line class="spark-zero" x1="0" y1="{{ row.spark.zero_y }}" x2="{{ row.spark.width }}" y2="{{ row.spark.zero_y }}"/>
+            {% if row.count > 1 %}<polyline class="spark-line {{ row.tone | tone_class }}" points="{{ row.spark.polyline }}"/>{% endif %}
+            <circle class="spark-dot {{ row.tone | tone_class }}" cx="{{ row.spark.last_x }}" cy="{{ row.spark.last_y }}" r="2.6"/>
+          </svg>
+        </a>
         <span class="score-chip {{ row.score | score_chip }}">{{ "%+.2f" | format(row.score) }}</span>
       </li>
       {% endfor %}

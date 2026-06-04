@@ -1,0 +1,69 @@
+<div id="monitor-board" class="monitor-board">
+  {% if error %}<p class="answer-error">{{ error }}</p>{% endif %}
+  {% if monitor %}
+  <div class="monitor-scroll">
+    <table class="monitor">
+      <thead>
+        <tr>
+          <th class="col-bank {{ 'sorted' if monitor_sort == 'bank' }}">
+            <a href="/ui/monitor?sort=bank" hx-get="/ui/monitor?sort=bank" hx-target="#monitor-board" hx-swap="outerHTML">Bank</a>
+          </th>
+          <th class="col-stance">Stance <span class="axis-hint">dov &larr;&middot;&rarr; hawk</span></th>
+          <th class="col-num {{ 'sorted' if monitor_sort == 'stance' }}">
+            <a href="/ui/monitor?sort=stance" hx-get="/ui/monitor?sort=stance" hx-target="#monitor-board" hx-swap="outerHTML">Now</a>
+          </th>
+          <th class="col-num {{ 'sorted' if monitor_sort == 'delta_1m' }}">
+            <a href="/ui/monitor?sort=delta_1m" hx-get="/ui/monitor?sort=delta_1m" hx-target="#monitor-board" hx-swap="outerHTML">&Delta;1M</a>
+          </th>
+          <th class="col-num {{ 'sorted' if monitor_sort == 'delta_3m' }}">
+            <a href="/ui/monitor?sort=delta_3m" hx-get="/ui/monitor?sort=delta_3m" hx-target="#monitor-board" hx-swap="outerHTML">&Delta;3M</a>
+          </th>
+          <th class="col-trend">6M trend</th>
+          <th class="col-num {{ 'sorted' if monitor_sort == 'committee' }}">
+            <a href="/ui/monitor?sort=committee" hx-get="/ui/monitor?sort=committee" hx-target="#monitor-board" hx-swap="outerHTML">Committee</a>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in monitor %}
+        <tr>
+          <td class="col-bank">
+            <a class="mono-bank" href="/ui/leaderboard?bank={{ r.bank.value }}"
+               hx-get="/ui/leaderboard?bank={{ r.bank.value }}" hx-target="#bank-board" hx-swap="outerHTML show:top"
+               aria-label="Open the {{ r.label }} committee">
+              <span class="mono-mark" style="background:var(--cat-{{ r.palette }})"></span>{{ r.code }}
+              {% if r.divided %}<span class="split-flag" title="committee is split">&#10022;</span>{% endif %}
+            </a>
+            <span class="mono-name">{{ r.label }}</span>
+          </td>
+          <td class="col-stance">
+            <div class="move-track" role="img" aria-label="{{ r.label }} stance {{ '%+.2f' | format(r.now) }}">
+              <span class="move-center"></span>
+              <span class="move-fill {{ r.now | tone_side }}" style="width:{{ r.now | bar_width }}%"></span>
+            </div>
+          </td>
+          <td class="col-num"><span class="score-chip {{ r.now | score_chip }}">{{ "%+.2f" | format(r.now) }}</span></td>
+          <td class="col-num delta {{ r.delta_1m | delta_class }}">{{ r.delta_1m | delta }}</td>
+          <td class="col-num delta {{ r.delta_3m | delta_class }}">{{ r.delta_3m | delta }}</td>
+          <td class="col-trend">
+            <svg class="mono-spark" viewBox="0 0 {{ r.spark.width }} {{ r.spark.height }}"
+                 preserveAspectRatio="none" aria-hidden="true">
+              <line class="spark-zero" x1="0" y1="{{ r.spark.zero_y }}" x2="{{ r.spark.width }}" y2="{{ r.spark.zero_y }}"/>
+              {% if r.months > 1 %}<polyline class="spark-line" style="stroke:var(--cat-{{ r.palette }})" points="{{ r.spark.polyline }}"/>{% endif %}
+              <circle class="spark-dot" style="fill:var(--cat-{{ r.palette }})" cx="{{ r.spark.last_x }}" cy="{{ r.spark.last_y }}" r="2.6"/>
+            </svg>
+          </td>
+          <td class="col-num cmte">
+            <span class="cmte-h" title="hawkish members">{{ r.hawk_count }}H</span>
+            <span class="cmte-d" title="dovish members">{{ r.dove_count }}D</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="faint-note monitor-foot">&#10022; split committee &middot; &Delta; vs the same committee 1 and 3 months ago &middot; click a bank to drill into its committee</p>
+  {% else %}
+  <p class="muted empty">No tone observations yet. Run the worker or add a speech to populate the monitor.</p>
+  {% endif %}
+</div>

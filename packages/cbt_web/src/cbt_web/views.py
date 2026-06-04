@@ -70,6 +70,81 @@ _BAND_MID = (_BAND_TOP + _BAND_BOTTOM) / 2.0
 _BAND_HALF = (_BAND_BOTTOM - _BAND_TOP) / 2.0
 _BAND_MAX_LABELS = 12
 
+# Number of categorical line colours (CSS ``--cat-0`` .. ``--cat-7``). Each tracked bank gets a
+# stable, distinct slot by its registry order (``_BANK_PALETTE``); a test asserts the registry
+# never outgrows the palette, so colours are never silently reused (CLAUDE.md section 3).
+_PALETTE_SIZE = 8
+_BANK_PALETTE: dict[CentralBank, int] = {bank: index for index, bank in enumerate(CentralBank)}
+
+# Short, desk-standard codes for the per-bank line end labels. Keyed off the registry enum (it
+# stays the single source of truth for which banks exist); an unlisted bank falls back to a
+# derived code rather than failing, so adding a registry member never breaks the chart.
+_BANK_CODE: dict[CentralBank, str] = {
+    CentralBank.FEDERAL_RESERVE: "FED",
+    CentralBank.ECB: "ECB",
+    CentralBank.BANK_OF_ENGLAND: "BoE",
+    CentralBank.BANK_OF_JAPAN: "BoJ",
+    CentralBank.BANK_OF_CANADA: "BoC",
+    CentralBank.RESERVE_BANK_OF_AUSTRALIA: "RBA",
+    CentralBank.SWISS_NATIONAL_BANK: "SNB",
+    CentralBank.PEOPLES_BANK_OF_CHINA: "PBoC",
+}
+
+# How many model/lexicon disagreements to surface on the dashboard, largest split first.
+_MAX_FLAGGED = 8
+
+# Per-bank divergence chart geometry: its own wider box with a right gutter for the end-of-line
+# labels (one "CODE +0.xx" per bank, vertically de-collided), so a reader names a line on the
+# chart without tracing back to the legend or relying on colour alone.
+_DIV_W = 760.0
+_DIV_H = 244.0
+_DIV_PAD_L = 34.0
+_DIV_PAD_R = 96.0
+_DIV_TOP = 16.0
+_DIV_BOTTOM = 196.0
+_DIV_MID = (_DIV_TOP + _DIV_BOTTOM) / 2.0
+_DIV_HALF = (_DIV_BOTTOM - _DIV_TOP) / 2.0
+_DIV_MAX_LABELS = 12
+_DIV_LABEL_GAP = 11.0  # minimum vertical spacing between adjacent end-of-line labels
+_DIV_LABEL_X = _DIV_W - _DIV_PAD_R + 10.0  # x where the end-of-line labels begin (right gutter)
+
+# Relative-value spread chart geometry (one bank's tone index minus another's, over time). Its
+# own y-axis (a spread can range wider than a single tone), drawn symmetrically around zero.
+_SPR_W = 720.0
+_SPR_H = 188.0
+_SPR_PAD_L = 40.0
+_SPR_PAD_R = 16.0
+_SPR_TOP = 14.0
+_SPR_BOTTOM = 150.0
+_SPR_MID = (_SPR_TOP + _SPR_BOTTOM) / 2.0
+_SPR_HALF = (_SPR_BOTTOM - _SPR_TOP) / 2.0
+_SPR_MAX_LABELS = 12
+
+# A committee-stance move smaller than this (between the compared periods) reads as flat, not a
+# turn; it is the rounding-noise band shared with the movement rows below.
+_TURN_BAND = 0.02
+_MAX_MOVERS = 6  # how many "who's turning" rows to surface, largest one-month move first
+
+# Allowed Policy Monitor sort keys (validated at the boundary; an unknown key is a 422, not a
+# silent default), mapped to a (key function, descending?) pair.
+_MONITOR_SORTS: frozenset[str] = frozenset({"stance", "delta_1m", "delta_3m", "committee", "bank"})
+
+
+def _bank_code(bank: CentralBank) -> str:
+    """Return a short desk code for a bank (e.g. ``FED``), deriving one if it is not listed."""
+    return _BANK_CODE.get(bank, bank.value[:4].upper())
+
+
+def _month_index(key: tuple[int, int]) -> int:
+    """Map a ``(year, month)`` to a comparable month ordinal for calendar arithmetic."""
+    return key[0] * 12 + (key[1] - 1)
+
+
+def _month_minus(key: tuple[int, int], months: int) -> tuple[int, int]:
+    """Return the ``(year, month)`` exactly ``months`` calendar months before ``key``."""
+    ordinal = _month_index(key) - months
+    return (ordinal // 12, ordinal % 12 + 1)
+
 
 @dataclass(frozen=True)
 class ChartPoint:
@@ -163,6 +238,63 @@ class CorpusToneSeries:
 
 
 @dataclass(frozen=True)
+class BankLinePoint:
+    """One month of a bank's tone-index line: its committee mean tone at a point in time."""
+
+    x: float
+    y: float
+    label: str  # the month, e.g. "02/26"
+    mean: float
+
+
+@dataclass(frozen=True)
+class MonthLabel:
+    """A bottom-axis month tick (its x position and short label) on the divergence chart."""
+
+    x: float
+    label: str
+
+
+@dataclass(frozen=True)
+class BankToneLine:
+    """One central bank's monthly tone index, drawn as a single coloured line over time."""
+
+    bank: CentralBank
+    label: str
+    code: str  # short desk code shown at the line end (e.g. "FED")
+    palette: int  # index into the CSS categorical palette (``--cat-0`` .. ``--cat-7``)
+    points: list[BankLinePoint]
+    polyline: str
+    last_x: float
+    last_y: float
+    label_y: float  # de-collided y for the end-of-line label (kept clear of its neighbours)
+    latest: float  # the most recent month's committee mean tone
+
+
+@dataclass(frozen=True)
+class BankToneHistory:
+    """Per-bank tone indices over a shared month axis, for the policy-divergence chart.
+
+    Every line is plotted against the same global month axis (so the banks are directly
+    comparable, and so the lines align with the corpus band chart drawn above it). A bank
+    contributes a point only for the months it actually spoke, leaving honest gaps.
+    """
+
+    width: float
+    height: float
+    pad_l: float
+    pad_r: float
+    mid_y: float
+    plot_top: float
+    plot_bottom: float
+    label_x: float  # x where the end-of-line labels begin (in the right gutter)
+    lines: list[BankToneLine]
+    ticks: list[ChartTick]
+    month_labels: list[MonthLabel]
+    months: int
+
+
+@dataclass(frozen=True)
 class BankBoard:
     """One central bank's committee, ranked by each member's most recent tone.
 
@@ -191,6 +323,124 @@ class DeskRead:
 
 
 @dataclass(frozen=True)
+class FlaggedSplit:
+    """A speech the LLM and the deterministic lexicon disagreed on, with the size of the split.
+
+    Surfacing these (rather than averaging them away) is the cross-check contract in ADR 0008: a
+    large model/lexicon divergence is a review signal, not noise to hide.
+    """
+
+    speaker: Speaker
+    speech: Speech
+    gap: float  # absolute gap between the model score and the lexicon score
+
+
+@dataclass(frozen=True)
+class MonthValue:
+    """One month of a bank's committee-stance series: its mean stance as of that month."""
+
+    key: tuple[int, int]  # (year, month)
+    value: float
+
+
+@dataclass(frozen=True)
+class PolicyMonitorRow:
+    """One bank's row in the Policy Monitor: where it stands now and how it has moved.
+
+    The single scannable line a macro desk reads first: current committee stance, the one- and
+    three-month change (the tradeable delta), a trend sparkline, and the committee's hawk/dove
+    split. A ``None`` delta means there is no reading that far back to compare against (shown as
+    an em dash, never a fabricated zero).
+    """
+
+    bank: CentralBank
+    label: str
+    code: str
+    palette: int
+    now: float  # current committee stance (mean of members' latest readings)
+    delta_1m: float | None  # change versus one calendar month ago, or None if no prior reading
+    delta_3m: float | None  # change versus three calendar months ago
+    spark: Spark
+    months: int
+    hawk_count: int
+    dove_count: int
+    divided: bool  # the committee is materially split (both camps present and near-balanced)
+    last_spoke: datetime | None
+
+
+@dataclass(frozen=True)
+class KpiCard:
+    """One market-relevant headline metric for the dashboard's top strip."""
+
+    label: str  # e.g. "Most hawkish"
+    headline: str  # e.g. "BoJ"
+    value: str  # e.g. "+0.80"
+    sub: str  # e.g. "hawkish" / "1-month move" / "FX divergence"
+    score: float | None  # drives the chip colour via the score_chip filter; None = neutral accent
+    href: str | None  # an in-page anchor or fragment link, when the card is actionable
+
+
+@dataclass(frozen=True)
+class Mover:
+    """A bank whose committee stance shifted over the last month (the momentum signal)."""
+
+    bank: CentralBank
+    code: str
+    label: str
+    palette: int
+    prev: float  # stance one month ago
+    now: float  # stance now
+    delta: float  # signed one-month change
+    side: str  # "hawk" (turning hawkish) or "dove" (turning dovish)
+    word: str  # "turning hawkish" / "extending hawkish" / "turning dovish" / "extending dovish"
+    bar_pct: float  # |delta| scaled to the largest mover, as a percentage
+
+
+@dataclass(frozen=True)
+class SpreadPoint:
+    """One month of a relative-value spread (bank A's stance minus bank B's)."""
+
+    x: float
+    y: float
+    label: str
+    value: float
+    show_label: bool
+
+
+@dataclass(frozen=True)
+class PairOption:
+    """A selectable bank pair for the relative-value spread toggle."""
+
+    a: CentralBank
+    b: CentralBank
+    label: str  # e.g. "FED - ECB"
+    selected: bool
+
+
+@dataclass(frozen=True)
+class SpreadChart:
+    """A relative-value tone spread between two banks over time (the FX-style divergence read)."""
+
+    width: float
+    height: float
+    pad_l: float
+    pad_r: float
+    zero_y: float
+    plot_top: float
+    plot_bottom: float
+    a_code: str
+    b_code: str
+    a_label: str
+    b_label: str
+    now: float  # the latest spread (a - b)
+    polyline: str
+    points: list[SpreadPoint]
+    ticks: list[ChartTick]
+    pairs: list[PairOption]
+    summary: str  # a one-line plain-language read of the current spread and its direction
+
+
+@dataclass(frozen=True)
 class CorpusOverview:
     """Aggregate corpus statistics for the dashboard."""
 
@@ -202,9 +452,16 @@ class CorpusOverview:
     span_start: datetime | None
     span_end: datetime | None
     read: DeskRead | None
+    kpis: list[KpiCard]
+    monitor: list[PolicyMonitorRow]
+    monitor_sort: str
+    movers: list[Mover]
+    spread: SpreadChart | None
     boards: list[BankBoard]
     recent: list[tuple[Speaker, Speech]]
     tone_series: CorpusToneSeries | None
+    bank_history: BankToneHistory | None
+    flagged_splits: list[FlaggedSplit]
 
 
 @dataclass(frozen=True)
@@ -446,6 +703,122 @@ def _bank_boards(leaders: list[LeaderRow]) -> list[BankBoard]:
     return boards
 
 
+def _bank_tone_history(
+    boards: list[BankBoard],
+    bank_series: dict[CentralBank, list[MonthValue]],
+    month_keys: list[tuple[int, int]],
+) -> BankToneHistory | None:
+    """Build a 'committee stance by bank over time' chart: one labelled line per bank.
+
+    Each board becomes one line, plotted across the shared global month axis so the banks are
+    directly comparable. The line follows the same canonical committee-stance series the Policy
+    Monitor reads (each month, the mean of members' most recent readings), so the chart, the
+    monitor trend, and the spreads all agree. Returns ``None`` when there is nothing to plot.
+
+    Args:
+        boards: The per-bank boards, already ordered (most populated first).
+        bank_series: Each bank's monthly committee-stance series.
+        month_keys: The sorted global month axis (every ``(year, month)`` in the corpus).
+
+    Returns:
+        The chart geometry, or ``None`` when there are no months or no banks to plot.
+    """
+    if not month_keys or not boards:
+        return None
+    span = _DIV_W - _DIV_PAD_L - _DIV_PAD_R
+    count = len(month_keys)
+    x_of = {
+        key: round(_DIV_PAD_L + (span / 2.0 if count == 1 else span * index / (count - 1)), 1)
+        for index, key in enumerate(month_keys)
+    }
+
+    def _y(value: float) -> float:
+        return round(_DIV_MID - max(-1.0, min(1.0, value)) * _DIV_HALF, 1)
+
+    # First pass: build each bank's points from its stance series (over the months it was active).
+    drawn: list[tuple[BankBoard, list[BankLinePoint]]] = []
+    for board in boards:
+        by_key = {mv.key: mv.value for mv in bank_series.get(board.bank, [])}
+        points: list[BankLinePoint] = []
+        for key in month_keys:
+            if key not in by_key:
+                continue
+            value = by_key[key]
+            points.append(
+                BankLinePoint(
+                    x=x_of[key], y=_y(value), label=f"{key[1]:02d}/{str(key[0])[2:]}", mean=value
+                )
+            )
+        if points:
+            drawn.append((board, points))
+    if not drawn:
+        return None
+
+    # De-collide the end-of-line labels: start each at its line's last point, then spread the
+    # labels apart (in y order) so they never overlap, and slide the whole block back inside the
+    # plot if the cluster pushed it past an edge.
+    last_ys = [points[-1].y for _, points in drawn]
+    label_y = list(last_ys)
+    order = sorted(range(len(drawn)), key=lambda i: last_ys[i])
+    previous: float | None = None
+    for i in order:
+        candidate = last_ys[i]
+        if previous is not None and candidate < previous + _DIV_LABEL_GAP:
+            candidate = previous + _DIV_LABEL_GAP
+        label_y[i] = candidate
+        previous = candidate
+    overflow = max(0.0, max(label_y) - _DIV_BOTTOM)
+    if overflow:
+        label_y = [y - overflow for y in label_y]
+    underflow = max(0.0, _DIV_TOP - min(label_y))
+    if underflow:
+        label_y = [y + underflow for y in label_y]
+
+    lines = [
+        BankToneLine(
+            bank=board.bank,
+            label=board.label,
+            code=_bank_code(board.bank),
+            palette=_BANK_PALETTE.get(board.bank, 0),
+            points=points,
+            polyline=" ".join(f"{p.x},{p.y}" for p in points),
+            last_x=points[-1].x,
+            last_y=points[-1].y,
+            label_y=round(label_y[index], 1),
+            latest=round(points[-1].mean, 2),
+        )
+        for index, (board, points) in enumerate(drawn)
+    ]
+    step = max(1, round(count / _DIV_MAX_LABELS))
+    month_labels = [
+        MonthLabel(x=x_of[key], label=f"{key[1]:02d}/{str(key[0])[2:]}")
+        for index, key in enumerate(month_keys)
+        if count <= _DIV_MAX_LABELS or index % step == 0
+    ]
+    ticks = [
+        ChartTick(
+            y=round(_DIV_MID - value * _DIV_HALF, 1),
+            label="0" if value == 0.0 else f"{value:+.1f}",
+            zero=value == 0.0,
+        )
+        for value in _TICK_VALUES
+    ]
+    return BankToneHistory(
+        width=_DIV_W,
+        height=_DIV_H,
+        pad_l=_DIV_PAD_L,
+        pad_r=_DIV_PAD_R,
+        mid_y=_DIV_MID,
+        plot_top=_DIV_TOP,
+        plot_bottom=_DIV_BOTTOM,
+        label_x=_DIV_LABEL_X,
+        lines=lines,
+        ticks=ticks,
+        month_labels=month_labels,
+        months=count,
+    )
+
+
 def _desk_read(
     buckets: dict[tuple[int, int], list[float]], boards: list[BankBoard]
 ) -> DeskRead | None:
@@ -507,55 +880,427 @@ def _select_board(boards: list[BankBoard], bank: str) -> BankBoard | None:
     return next((board for board in boards if board.bank == requested), None)
 
 
-def _corpus_overview(
-    speakers: list[Speaker], tone: ToneServiceDep, ingestion: IngestionServiceDep
-) -> CorpusOverview:
-    """Aggregate corpus-wide stats and per-bank leaderboards from the per-speaker services.
+@dataclass(frozen=True)
+class _ToneScan:
+    """The shared single pass over per-speaker tone, reused by the page and its fragments."""
 
-    This iterates the speakers (a small set in this single-operator tool); a high-cardinality
-    deployment would push these aggregates into a dedicated read model.
+    boards: list[BankBoard]
+    bank_series: dict[CentralBank, list[MonthValue]]
+    rows: list[PolicyMonitorRow]
+    buckets: dict[tuple[int, int], list[float]]
+    observation_total: int
+
+
+def _bank_stance_series(members: list[list[ToneObservation]]) -> list[MonthValue]:
+    """Build a bank's monthly committee-stance series.
+
+    For each calendar month from the committee's first reading to its last, the stance is the mean
+    across members of each member's most recent reading as of that month (a member who has not yet
+    spoken is not counted). This standing-tone-over-time series is the canonical signal the Policy
+    Monitor, the divergence chart, and the spreads all read, so every view agrees.
+
+    Args:
+        members: Each member's observations (each list oldest first or not; sorted here).
+
+    Returns:
+        The monthly stance series, oldest month first; empty if there are no observations.
     """
+    observed = [sorted(member, key=lambda o: o.observed_at) for member in members if member]
+    keys = [(o.observed_at.year, o.observed_at.month) for member in observed for o in member]
+    if not keys:
+        return []
+    series: list[MonthValue] = []
+    for ordinal in range(_month_index(min(keys)), _month_index(max(keys)) + 1):
+        latest: list[float] = []
+        for member in observed:
+            recent: float | None = None
+            for observation in member:
+                month = (observation.observed_at.year, observation.observed_at.month)
+                if _month_index(month) <= ordinal:
+                    recent = observation.score
+                else:
+                    break
+            if recent is not None:
+                latest.append(recent)
+        if latest:
+            series.append(
+                MonthValue(key=(ordinal // 12, ordinal % 12 + 1), value=sum(latest) / len(latest))
+            )
+    return series
+
+
+def _stance_delta(series: list[MonthValue], months: int) -> float | None:
+    """Change in stance versus ``months`` calendar months before the latest reading, or None.
+
+    Returns ``None`` (rendered as an em dash, never a fabricated zero) when there is no reading
+    that far back to compare against, per the no-silent-fallback rule.
+    """
+    if not series:
+        return None
+    by_key = {mv.key: mv.value for mv in series}
+    latest = series[-1]
+    target = _month_minus(latest.key, months)
+    if target not in by_key:
+        return None
+    return round(latest.value - by_key[target], 2)
+
+
+def _policy_monitor_row(
+    board: BankBoard, series: list[MonthValue], last_spoke: datetime | None
+) -> PolicyMonitorRow:
+    """Build one Policy Monitor row from a bank's board and its committee-stance series."""
+    now = series[-1].value if series else board.mean_score
+    smaller = min(board.hawk_count, board.dove_count)
+    larger = max(board.hawk_count, board.dove_count)
+    divided = board.hawk_count >= 1 and board.dove_count >= 1 and smaller * 2 >= larger
+    return PolicyMonitorRow(
+        bank=board.bank,
+        label=board.label,
+        code=_bank_code(board.bank),
+        palette=_BANK_PALETTE.get(board.bank, 0),
+        now=round(now, 2),
+        delta_1m=_stance_delta(series, 1),
+        delta_3m=_stance_delta(series, 3),
+        spark=_sparkline([mv.value for mv in series] or [board.mean_score]),
+        months=len(series),
+        hawk_count=board.hawk_count,
+        dove_count=board.dove_count,
+        divided=divided,
+        last_spoke=last_spoke,
+    )
+
+
+def _sort_monitor(rows: list[PolicyMonitorRow], sort: str) -> list[PolicyMonitorRow]:
+    """Return the monitor rows sorted by a validated key (raises ValueError on an unknown one)."""
+    if sort not in _MONITOR_SORTS:
+        raise ValueError(f"unknown monitor sort: {sort}")
+    if sort == "bank":
+        return sorted(rows, key=lambda r: r.label)
+    if sort == "committee":
+        return sorted(rows, key=lambda r: (r.hawk_count - r.dove_count, r.now), reverse=True)
+    if sort == "delta_1m":
+        return sorted(rows, key=lambda r: (r.delta_1m is not None, r.delta_1m or 0.0), reverse=True)
+    if sort == "delta_3m":
+        return sorted(rows, key=lambda r: (r.delta_3m is not None, r.delta_3m or 0.0), reverse=True)
+    return sorted(rows, key=lambda r: r.now, reverse=True)
+
+
+def _movers(rows: list[PolicyMonitorRow]) -> list[Mover]:
+    """The banks whose stance moved most over the last month (the momentum read), largest first."""
+    moved = [row for row in rows if row.delta_1m is not None and abs(row.delta_1m) > _TURN_BAND]
+    if not moved:
+        return []
+    largest = max(abs(row.delta_1m or 0.0) for row in moved)
+    movers: list[Mover] = []
+    for row in sorted(moved, key=lambda r: abs(r.delta_1m or 0.0), reverse=True)[:_MAX_MOVERS]:
+        delta = row.delta_1m or 0.0
+        prev = round(row.now - delta, 2)
+        hawkish = delta > 0
+        if hawkish:
+            word = "extending hawkish" if prev > _TURN_BAND else "turning hawkish"
+        else:
+            word = "extending dovish" if prev < -_TURN_BAND else "turning dovish"
+        movers.append(
+            Mover(
+                bank=row.bank,
+                code=row.code,
+                label=row.label,
+                palette=row.palette,
+                prev=prev,
+                now=row.now,
+                delta=delta,
+                side="hawk" if hawkish else "dove",
+                word=word,
+                bar_pct=round(abs(delta) / largest * 100.0, 1) if largest else 0.0,
+            )
+        )
+    return movers
+
+
+def _monitor_kpis(rows: list[PolicyMonitorRow], spread: SpreadChart | None) -> list[KpiCard]:
+    """Build the market-relevant headline cards for the top strip (skips ones with no data)."""
+    if not rows:
+        return []
+    hawkish = max(rows, key=lambda r: r.now)
+    dovish = min(rows, key=lambda r: r.now)
+    cards = [
+        KpiCard(
+            label="Most hawkish",
+            headline=hawkish.code,
+            value=f"{hawkish.now:+.2f}",
+            sub=hawkish.label,
+            score=hawkish.now,
+            href="#monitor",
+        ),
+        KpiCard(
+            label="Most dovish",
+            headline=dovish.code,
+            value=f"{dovish.now:+.2f}",
+            sub=dovish.label,
+            score=dovish.now,
+            href="#monitor",
+        ),
+    ]
+    moved = [row for row in rows if row.delta_1m is not None and abs(row.delta_1m) > _TURN_BAND]
+    if moved:
+        top = max(moved, key=lambda r: abs(r.delta_1m or 0.0))
+        delta = top.delta_1m or 0.0
+        cards.append(
+            KpiCard(
+                label="Biggest mover",
+                headline=top.code,
+                value=f"{delta:+.2f}",
+                sub="1-month move",
+                score=delta,
+                href="#movers",
+            )
+        )
+    if spread is not None:
+        cards.append(
+            KpiCard(
+                label="Widest divergence",
+                headline=f"{spread.a_code}-{spread.b_code}",
+                value=f"{spread.now:+.2f}",
+                sub="FX divergence",
+                score=None,
+                href="#spread",
+            )
+        )
+    return cards
+
+
+def _default_pair(rows: list[PolicyMonitorRow]) -> tuple[CentralBank, CentralBank] | None:
+    """The widest current divergence pair (most hawkish versus most dovish), or None."""
+    if len(rows) < 2:
+        return None
+    hawkish = max(rows, key=lambda r: r.now).bank
+    dovish = min(rows, key=lambda r: r.now).bank
+    return None if hawkish == dovish else (hawkish, dovish)
+
+
+_PRESET_PAIRS: tuple[tuple[CentralBank, CentralBank], ...] = (
+    (CentralBank.FEDERAL_RESERVE, CentralBank.ECB),
+    (CentralBank.FEDERAL_RESERVE, CentralBank.BANK_OF_JAPAN),
+    (CentralBank.ECB, CentralBank.BANK_OF_JAPAN),
+    (CentralBank.FEDERAL_RESERVE, CentralBank.BANK_OF_ENGLAND),
+)
+
+
+def _pair_options(
+    rows: list[PolicyMonitorRow], selected_a: CentralBank, selected_b: CentralBank
+) -> list[PairOption]:
+    """Build the relative-value pair toggle: the widest pair first, then notable presets present."""
+    present = {row.bank for row in rows}
+    pairs: list[tuple[CentralBank, CentralBank]] = []
+    seen: set[frozenset[CentralBank]] = set()
+    widest = _default_pair(rows)
+    for pair in ([widest] if widest else []) + list(_PRESET_PAIRS):
+        a, b = pair
+        token = frozenset(pair)
+        if a in present and b in present and a != b and token not in seen:
+            pairs.append(pair)
+            seen.add(token)
+    target = frozenset((selected_a, selected_b))
+    return [
+        PairOption(
+            a=a,
+            b=b,
+            label=f"{_bank_code(a)} - {_bank_code(b)}",
+            selected=frozenset((a, b)) == target,
+        )
+        for a, b in pairs
+    ]
+
+
+def _spread_chart(
+    series_a: list[MonthValue],
+    series_b: list[MonthValue],
+    bank_a: CentralBank,
+    bank_b: CentralBank,
+    pairs: list[PairOption],
+) -> SpreadChart | None:
+    """Build the relative-value tone spread (A minus B) over their common months, or None."""
+    a_by = {mv.key: mv.value for mv in series_a}
+    b_by = {mv.key: mv.value for mv in series_b}
+    common = sorted(set(a_by) & set(b_by))
+    if not common:
+        return None
+    values = [round(a_by[key] - b_by[key], 4) for key in common]
+    bound = 0.5
+    while bound < max(abs(value) for value in values):
+        bound += 0.5
+    span = _SPR_W - _SPR_PAD_L - _SPR_PAD_R
+    count = len(common)
+    step = max(1, round(count / _SPR_MAX_LABELS))
+
+    def _y(value: float) -> float:
+        return round(_SPR_MID - max(-bound, min(bound, value)) / bound * _SPR_HALF, 1)
+
+    points: list[SpreadPoint] = []
+    for index, key in enumerate(common):
+        x = _SPR_PAD_L + (span / 2.0 if count == 1 else span * index / (count - 1))
+        points.append(
+            SpreadPoint(
+                x=round(x, 1),
+                y=_y(values[index]),
+                label=f"{key[1]:02d}/{str(key[0])[2:]}",
+                value=values[index],
+                show_label=count <= _SPR_MAX_LABELS or index % step == 0,
+            )
+        )
+    ticks = [
+        ChartTick(y=_y(level), label="0" if level == 0.0 else f"{level:+.1f}", zero=level == 0.0)
+        for level in (bound, 0.0, -bound)
+    ]
+    now = values[-1]
+    code_a, code_b = _bank_code(bank_a), _bank_code(bank_b)
+    if now > _TURN_BAND:
+        relation = f"{code_a} is {abs(now):.2f} above {code_b}"
+    elif now < -_TURN_BAND:
+        relation = f"{code_a} is {abs(now):.2f} below {code_b}"
+    else:
+        relation = f"{code_a} is in line with {code_b}"
+    drift = ""
+    prior_key = _month_minus(common[-1], 3)
+    if prior_key in a_by and prior_key in b_by:
+        prior = a_by[prior_key] - b_by[prior_key]
+        if abs(now) > abs(prior) + _TURN_BAND:
+            drift = ", widening"
+        elif abs(now) < abs(prior) - _TURN_BAND:
+            drift = ", narrowing"
+        else:
+            drift = ", steady"
+    return SpreadChart(
+        width=_SPR_W,
+        height=_SPR_H,
+        pad_l=_SPR_PAD_L,
+        pad_r=_SPR_PAD_R,
+        zero_y=_SPR_MID,
+        plot_top=_SPR_TOP,
+        plot_bottom=_SPR_BOTTOM,
+        a_code=code_a,
+        b_code=code_b,
+        a_label=bank_a.value.replace("_", " ").title(),
+        b_label=bank_b.value.replace("_", " ").title(),
+        now=round(now, 2),
+        polyline=" ".join(f"{p.x},{p.y}" for p in points),
+        points=points,
+        ticks=ticks,
+        pairs=pairs,
+        summary=f"{relation}{drift}.",
+    )
+
+
+def _spread_for(scan: _ToneScan, bank_a: str, bank_b: str) -> SpreadChart | None:
+    """Resolve the requested (or default widest) pair and build its spread chart.
+
+    Raises:
+        ValueError: If a supplied bank value is not a known central bank (a 4xx at the boundary).
+    """
+    if not scan.rows:
+        return None
+    if bank_a or bank_b:
+        a, b = CentralBank(bank_a), CentralBank(bank_b)
+    else:
+        pair = _default_pair(scan.rows)
+        if pair is None:
+            return None
+        a, b = pair
+    pairs = _pair_options(scan.rows, a, b)
+    return _spread_chart(scan.bank_series.get(a, []), scan.bank_series.get(b, []), a, b, pairs)
+
+
+def _scan_tone(speakers: list[Speaker], tone: ToneServiceDep) -> _ToneScan:
+    """One pass over per-speaker tone: boards, the canonical stance series, and the monitor rows."""
     leaders: list[LeaderRow] = []
+    members_by_bank: dict[CentralBank, list[list[ToneObservation]]] = {}
     buckets: dict[tuple[int, int], list[float]] = {}
+    last_spoke: dict[CentralBank, datetime] = {}
     observation_total = 0
     for speaker in speakers:
         observations = tone.observations_for(speaker.id)
         if not observations:
             continue
         leaders.append(_leader_row(speaker, observations))
+        members_by_bank.setdefault(speaker.central_bank, []).append(observations)
         observation_total += len(observations)
         for observation in observations:
             buckets.setdefault(
                 (observation.observed_at.year, observation.observed_at.month), []
             ).append(observation.score)
+            current = last_spoke.get(speaker.central_bank)
+            if current is None or observation.observed_at > current:
+                last_spoke[speaker.central_bank] = observation.observed_at
+    boards = _bank_boards(leaders)
+    bank_series = {bank: _bank_stance_series(members) for bank, members in members_by_bank.items()}
+    rows = [
+        _policy_monitor_row(board, bank_series.get(board.bank, []), last_spoke.get(board.bank))
+        for board in boards
+    ]
+    return _ToneScan(
+        boards=boards,
+        bank_series=bank_series,
+        rows=rows,
+        buckets=buckets,
+        observation_total=observation_total,
+    )
+
+
+def _corpus_overview(
+    speakers: list[Speaker], tone: ToneServiceDep, ingestion: IngestionServiceDep
+) -> CorpusOverview:
+    """Aggregate the dashboard: the Policy Monitor, market KPIs, movers, spreads, and context.
+
+    One tone pass builds the canonical per-bank stance series and the monitor; a second pass over
+    speeches adds the recent flow, the flagged splits, and the span. This iterates the speakers (a
+    small set in this single-operator tool); a high-cardinality deployment would push these
+    aggregates into a dedicated read model.
+    """
+    scan = _scan_tone(speakers, tone)
     speech_total = 0
     flagged = 0
     span_start: datetime | None = None
     span_end: datetime | None = None
     recent: list[tuple[Speaker, Speech]] = []
+    flagged_splits: list[FlaggedSplit] = []
     for speaker in speakers:
         speeches = ingestion.list_speeches(speaker.id)
         speech_total += len(speeches)
         flagged += sum(1 for speech in speeches if speech.needs_review)
         recent.extend((speaker, speech) for speech in speeches)
+        flagged_splits.extend(
+            FlaggedSplit(
+                speaker=speaker, speech=speech, gap=abs(speech.score - speech.lexicon_score)
+            )
+            for speech in speeches
+            if speech.needs_review
+        )
         for speech in speeches:
             delivered = speech.delivered_at
             span_start = delivered if span_start is None else min(span_start, delivered)
             span_end = delivered if span_end is None else max(span_end, delivered)
     recent.sort(key=lambda pair: pair[1].delivered_at, reverse=True)
-    boards = _bank_boards(leaders)
+    flagged_splits.sort(key=lambda split: split.gap, reverse=True)
+    spread = _spread_for(scan, "", "")
     return CorpusOverview(
         speakers=len(speakers),
         speeches=speech_total,
-        observations=observation_total,
+        observations=scan.observation_total,
         flagged=flagged,
-        banks=len(boards),
+        banks=len(scan.boards),
         span_start=span_start,
         span_end=span_end,
-        read=_desk_read(buckets, boards),
-        boards=boards,
+        read=_desk_read(scan.buckets, scan.boards),
+        kpis=_monitor_kpis(scan.rows, spread),
+        monitor=_sort_monitor(scan.rows, "stance"),
+        monitor_sort="stance",
+        movers=_movers(scan.rows),
+        spread=spread,
+        boards=scan.boards,
         recent=recent[:6],
-        tone_series=_tone_series_from(buckets),
+        tone_series=_tone_series_from(scan.buckets),
+        bank_history=_bank_tone_history(scan.boards, scan.bank_series, sorted(scan.buckets)),
+        flagged_splits=flagged_splits[:_MAX_FLAGGED],
     )
 
 
@@ -617,6 +1362,54 @@ def leaderboard(
     return templates.TemplateResponse(
         request, "_leaderboard.html", {"boards": boards, "board": board}
     )
+
+
+@router.get("/ui/monitor")
+def monitor(
+    request: Request, speakers: SpeakerServiceDep, tone: ToneServiceDep, sort: str = ""
+) -> Response:
+    """Return the Policy Monitor matrix fragment, sorted by a validated column (htmx).
+
+    The column headers re-request this fragment with a ``sort`` key. An unknown key is a bad input
+    and returns 422 (validated at the boundary, not silently defaulted).
+    """
+    scan = _scan_tone(speakers.list_speakers(), tone)
+    key = sort or "stance"
+    try:
+        rows = _sort_monitor(scan.rows, key)
+    except ValueError:
+        return templates.TemplateResponse(
+            request,
+            "_monitor.html",
+            {"monitor": [], "monitor_sort": "stance", "error": "Unknown sort key."},
+            status_code=422,
+        )
+    return templates.TemplateResponse(
+        request, "_monitor.html", {"monitor": rows, "monitor_sort": key}
+    )
+
+
+@router.get("/ui/spread")
+def spread(
+    request: Request, speakers: SpeakerServiceDep, tone: ToneServiceDep, a: str = "", b: str = ""
+) -> Response:
+    """Return the relative-value spread fragment for a bank pair (htmx).
+
+    The pair toggle re-requests this fragment with ``a`` and ``b`` bank values; empty values fall
+    back to the widest current divergence pair. An unknown bank value is a bad input and returns
+    422 (validated at the boundary).
+    """
+    scan = _scan_tone(speakers.list_speakers(), tone)
+    try:
+        chart = _spread_for(scan, a, b)
+    except ValueError:
+        return templates.TemplateResponse(
+            request,
+            "_spread.html",
+            {"spread": None, "error": "Unknown central bank."},
+            status_code=422,
+        )
+    return templates.TemplateResponse(request, "_spread.html", {"spread": chart})
 
 
 @router.get("/methodology")

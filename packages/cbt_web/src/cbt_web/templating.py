@@ -71,6 +71,24 @@ def _bar_width(score: float) -> str:
     return f"{min(abs(score), 1.0) * 50.0:.1f}"
 
 
+def _delta(value: float | None) -> str:
+    """Format a signed stance change with a direction arrow, or an em dash when there is none."""
+    if value is None:
+        return "—"  # em dash: no reading that far back to compare against, not a zero
+    if value > 0.02:
+        return f"{value:+.2f} ▲"
+    if value < -0.02:
+        return f"{value:+.2f} ▼"
+    return f"{value:+.2f}"
+
+
+def _delta_class(value: float | None) -> str:
+    """Return the CSS modifier for a stance change: ``up`` (hawkish), ``down`` (dovish), or flat."""
+    if value is None or -0.02 <= value <= 0.02:
+        return "flat"
+    return "up" if value > 0.02 else "down"
+
+
 def build_templates() -> Jinja2Templates:
     """Build the Jinja2 templates object with the UI's presentation filters registered.
 
@@ -85,6 +103,8 @@ def build_templates() -> Jinja2Templates:
     instance.env.filters["score_chip"] = _score_chip
     instance.env.filters["tone_side"] = _tone_side
     instance.env.filters["bar_width"] = _bar_width
+    instance.env.filters["delta"] = _delta
+    instance.env.filters["delta_class"] = _delta_class
     return instance
 
 

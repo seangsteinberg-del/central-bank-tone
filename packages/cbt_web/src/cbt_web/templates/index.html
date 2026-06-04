@@ -27,12 +27,20 @@
   <div id="corpus-answer" class="answer-slot" aria-live="polite"></div>
 </section>
 
-<section class="stat-grid">
-  <div class="stat"><div class="value num">{{ overview.speakers }}</div><div class="label">Speakers tracked</div></div>
-  <div class="stat"><div class="value num">{{ overview.speeches }}</div><div class="label">Speeches analyzed</div></div>
-  <div class="stat"><div class="value num">{{ overview.observations }}</div><div class="label">Tone observations</div></div>
-  <div class="stat flag"><div class="value num">{{ overview.flagged }}</div><div class="label">Flagged for review</div></div>
+{% if overview.kpis %}
+<section class="kpi-grid">
+  {% for c in overview.kpis %}
+  <a class="kpi"{% if c.href %} href="{{ c.href }}"{% endif %}>
+    <div class="kpi-label">{{ c.label }}</div>
+    <div class="kpi-line">
+      <span class="kpi-bank">{{ c.headline }}</span>
+      <span class="kpi-value{% if c.score is not none %} {{ c.score | score_chip }}{% endif %}">{{ c.value }}</span>
+    </div>
+    <div class="kpi-sub">{{ c.sub }}</div>
+  </a>
+  {% endfor %}
 </section>
+{% endif %}
 
 {% if overview.speeches == 0 %}
 <section class="panel empty-corpus">
@@ -46,11 +54,132 @@
 </section>
 {% endif %}
 
+{% if overview.monitor %}
+<div class="section-title" id="monitor">
+  <h2>Policy monitor</h2>
+  <span class="faint-note">committee stance now, the 1- and 3-month change, the trend, and the committee split &middot; click a column to sort</span>
+</div>
+{% set monitor = overview.monitor %}
+{% set monitor_sort = overview.monitor_sort %}
+{% include "_monitor.html" %}
+{% endif %}
+
+{% if overview.movers %}
+<div class="section-title" id="movers">
+  <h2>Who's turning</h2>
+  <span class="faint-note">largest one-month shift in committee stance</span>
+</div>
+<section class="panel">
+  <ul class="mover-list">
+    {% for m in overview.movers %}
+    <li class="mover-row">
+      <a class="mover-bank" href="/ui/leaderboard?bank={{ m.bank.value }}"
+         hx-get="/ui/leaderboard?bank={{ m.bank.value }}" hx-target="#bank-board" hx-swap="outerHTML show:top"
+         aria-label="Open the {{ m.label }} committee">
+        <span class="mono-mark" style="background:var(--cat-{{ m.palette }})"></span>{{ m.code }}<span class="sub">{{ m.label }}</span>
+      </a>
+      <div class="move-track" role="img" aria-label="{{ m.label }} {{ m.word }}">
+        <span class="move-center"></span>
+        <span class="move-fill {{ m.side }}" style="width:{{ m.bar_pct / 2 }}%"></span>
+      </div>
+      <span class="mover-from num">{{ "%+.2f" | format(m.prev) }} &rarr; {{ "%+.2f" | format(m.now) }}</span>
+      <span class="mover-word {{ m.side }}">{{ m.word }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if overview.spread %}
+<div class="section-title" id="spread">
+  <h2>Relative value</h2>
+  <span class="faint-note">tone spread between two banks over time, the FX-style divergence read</span>
+</div>
+{% set spread = overview.spread %}
+{% include "_spread.html" %}
+{% endif %}
+
+{% if overview.bank_history %}
+{% set h = overview.bank_history %}
+<div class="section-title">
+  <h2>Policy divergence over time</h2>
+  <span class="faint-note">each bank's monthly committee stance, labelled at its latest reading &middot; {{ h.months }} months</span>
+</div>
+<section class="panel">
+  <svg class="band-chart bank-history" viewBox="0 0 {{ h.width }} {{ h.height }}" preserveAspectRatio="xMidYMid meet"
+       role="img" aria-label="Each central bank's monthly committee stance over time ({{ h.lines | length }} banks), hawkish to dovish; each line is labelled with its bank code at its latest reading.">
+    <rect class="band-haw" x="{{ h.pad_l }}" y="{{ h.plot_top }}"
+          width="{{ h.width - h.pad_l - h.pad_r }}" height="{{ h.mid_y - h.plot_top }}"/>
+    <rect class="band-dov" x="{{ h.pad_l }}" y="{{ h.mid_y }}"
+          width="{{ h.width - h.pad_l - h.pad_r }}" height="{{ h.plot_bottom - h.mid_y }}"/>
+    {% for t in h.ticks %}
+    <line class="{{ 'zero-line' if t.zero else 'grid-line' }}" x1="{{ h.pad_l }}" y1="{{ t.y }}" x2="{{ h.width - h.pad_r }}" y2="{{ t.y }}"/>
+    <text class="axis-label tick" x="{{ h.pad_l - 7 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ t.label }}</text>
+    {% endfor %}
+    {% for line in h.lines %}
+    {% if line.points | length > 1 %}
+    <polyline class="bank-line" style="stroke:var(--cat-{{ line.palette }})" points="{{ line.polyline }}"/>
+    {% endif %}
+    {% for p in line.points %}
+    <circle class="bank-line-dot" style="fill:var(--cat-{{ line.palette }})" cx="{{ p.x }}" cy="{{ p.y }}" r="1.8">
+      <title>{{ line.label }} &middot; {{ p.label }}: {{ "%+.2f" | format(p.mean) }}</title>
+    </circle>
+    {% endfor %}
+    {% if line.label_y - line.last_y > 1.5 or line.last_y - line.label_y > 1.5 %}
+    <line class="bank-line-leader" style="stroke:var(--cat-{{ line.palette }})" x1="{{ line.last_x }}" y1="{{ line.last_y }}" x2="{{ h.label_x - 4 }}" y2="{{ line.label_y }}"/>
+    {% endif %}
+    <circle class="bank-line-dot last" style="fill:var(--cat-{{ line.palette }})" cx="{{ line.last_x }}" cy="{{ line.last_y }}" r="3"/>
+    <text class="bank-line-label" style="fill:var(--cat-{{ line.palette }})" x="{{ h.label_x }}" y="{{ line.label_y + 3 }}">{{ line.code }} {{ "%+.2f" | format(line.latest) }}</text>
+    {% endfor %}
+    {% for m in h.month_labels %}
+    <text class="axis-label" x="{{ m.x }}" y="{{ h.height - 5 }}" text-anchor="middle">{{ m.label }}</text>
+    {% endfor %}
+  </svg>
+  <div class="chart-legend bank-history-legend">
+    {% for line in h.lines %}
+    <a class="legend-key" href="/ui/leaderboard?bank={{ line.bank.value }}"
+       hx-get="/ui/leaderboard?bank={{ line.bank.value }}" hx-target="#bank-board" hx-swap="outerHTML show:top"
+       aria-label="Show the {{ line.label }} committee">
+      <span class="swatch" style="background:var(--cat-{{ line.palette }})"></span>{{ line.code }}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if overview.boards %}
+<div class="section-title">
+  <h2>Committee tone by bank</h2>
+  <span class="faint-note">tone compares only within a committee, not across banks</span>
+</div>
+{% include "_leaderboard.html" %}
+{% endif %}
+
+{% if overview.recent %}
+<div class="section-title"><h2>Recently analyzed</h2></div>
+<ul class="speech-list">
+  {% for speaker, speech in overview.recent %}
+  <li class="speech-card">
+    <div class="speech-head">
+      <a class="speech-title" href="/speeches/{{ speech.id }}">{{ speech.title }}</a>
+      <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
+    </div>
+    <p class="speech-meta">
+      <a class="kv" href="/speakers/{{ speaker.id }}">{{ speaker.name }}</a>
+      <span class="kv">{{ speech.delivered_at | format_date }}</span>
+      <span class="kv">model <b>{{ "%+.2f" | format(speech.score) }}</b></span>
+      {% if speech.needs_review %}<span class="review-badge">model/lexicon disagree</span>{% endif %}
+    </p>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
 {% if overview.tone_series %}
 {% set s = overview.tone_series %}
 <div class="section-title">
-  <h2>Tone drift across central banks</h2>
-  <span class="faint-note">monthly mean tone, shaded &plusmn;1 std &middot; {{ s.months }} months</span>
+  <h2>Corpus aggregate</h2>
+  <span class="faint-note">context: monthly mean tone pooled across all banks, shaded &plusmn;1 std &middot; {{ s.months }} months</span>
 </div>
 <section class="panel">
   <svg class="band-chart" viewBox="0 0 {{ s.width }} {{ s.height }}" preserveAspectRatio="xMidYMid meet"
@@ -83,56 +212,30 @@
 </section>
 {% endif %}
 
-{% if overview.boards %}
-<div class="section-title">
-  <h2>Policy stance by bank</h2>
-  <span class="faint-note">committee mean tone, hawkish to dovish</span>
+{% if overview.flagged_splits %}
+<div class="section-title" id="flagged">
+  <h2>Model / lexicon disagreements</h2>
+  <span class="faint-note">data-quality check, not a market signal &middot; largest model-vs-lexicon gap first</span>
 </div>
-<section class="panel stance">
-  <div class="committee-axis"><span>&larr; dovish</span><span>neutral</span><span>hawkish &rarr;</span></div>
-  <ul class="stance-list">
-    {% for b in overview.boards | sort(attribute="mean_score", reverse=true) %}
-    <li class="stance-row">
-      <a class="stance-bank" href="/ui/leaderboard?bank={{ b.bank.value }}"
-         hx-get="/ui/leaderboard?bank={{ b.bank.value }}" hx-target="#bank-board" hx-swap="outerHTML">
-        {{ b.label }}<span class="sub num">{{ b.speaker_count }}</span>
-      </a>
-      <div class="move-track" role="img"
-           aria-label="{{ b.label }} committee mean tone {{ '%+.2f' | format(b.mean_score) }}">
-        <span class="move-center"></span>
-        <span class="move-fill {{ b.mean_score | tone_side }}" style="width:{{ b.mean_score | bar_width }}%"></span>
+<section class="panel">
+  <div class="committee-axis"><span>speech</span><span>model / lexicon</span><span>gap</span></div>
+  <ul class="split-list">
+    {% for f in overview.flagged_splits %}
+    <li class="split-row">
+      <div class="who">
+        <a href="/speeches/{{ f.speech.id }}">{{ f.speech.title }}</a>
+        <span class="sub"><a href="/speakers/{{ f.speaker.id }}">{{ f.speaker.name }}</a> &middot; {{ f.speech.delivered_at | format_date }}</span>
       </div>
-      <span class="score-chip {{ b.mean_score | score_chip }}">{{ "%+.2f" | format(b.mean_score) }}</span>
+      <div class="split-scores">
+        <span class="score-chip {{ f.speech.score | score_chip }}" title="model score">{{ "%+.2f" | format(f.speech.score) }}</span>
+        <span class="split-vs">/</span>
+        <span class="score-chip {{ f.speech.lexicon_score | score_chip }}" title="lexicon score">{{ "%+.2f" | format(f.speech.lexicon_score) }}</span>
+      </div>
+      <span class="split-gap num">{{ "%.2f" | format(f.gap) }}</span>
     </li>
     {% endfor %}
   </ul>
 </section>
-
-<div class="section-title">
-  <h2>Committee tone by bank</h2>
-  <span class="faint-note">tone compares only within a committee, not across banks</span>
-</div>
-{% include "_leaderboard.html" %}
-{% endif %}
-
-{% if overview.recent %}
-<div class="section-title"><h2>Recently analyzed</h2></div>
-<ul class="speech-list">
-  {% for speaker, speech in overview.recent %}
-  <li class="speech-card">
-    <div class="speech-head">
-      <a class="speech-title" href="/speeches/{{ speech.id }}">{{ speech.title }}</a>
-      <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
-    </div>
-    <p class="speech-meta">
-      <a class="kv" href="/speakers/{{ speaker.id }}">{{ speaker.name }}</a>
-      <span class="kv">{{ speech.delivered_at | format_date }}</span>
-      <span class="kv">model <b>{{ "%+.2f" | format(speech.score) }}</b></span>
-      {% if speech.needs_review %}<span class="review-badge">model/lexicon disagree</span>{% endif %}
-    </p>
-  </li>
-  {% endfor %}
-</ul>
 {% endif %}
 
 <section class="directory" id="speakers">

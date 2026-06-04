@@ -1,0 +1,42 @@
+<div id="spread-board" class="spread-board">
+  {% if error %}<p class="answer-error">{{ error }}</p>{% endif %}
+  {% if spread %}
+  {% set sp = spread %}
+  <div class="tabs spread-tabs" role="tablist" aria-label="Choose a bank pair">
+    {% for p in sp.pairs %}
+    <a class="tab {{ 'active' if p.selected }}" href="/ui/spread?a={{ p.a.value }}&amp;b={{ p.b.value }}"
+       hx-get="/ui/spread?a={{ p.a.value }}&amp;b={{ p.b.value }}" hx-target="#spread-board" hx-swap="outerHTML"
+       role="tab" aria-selected="{{ 'true' if p.selected else 'false' }}">{{ p.label }}</a>
+    {% endfor %}
+  </div>
+  <section class="panel">
+    <div class="spread-read">{{ sp.summary }}</div>
+    <svg class="spread-chart" viewBox="0 0 {{ sp.width }} {{ sp.height }}" preserveAspectRatio="xMidYMid meet"
+         role="img" aria-label="Tone spread of {{ sp.a_label }} minus {{ sp.b_label }} over time">
+      {% for t in sp.ticks %}
+      <line class="{{ 'zero-line' if t.zero else 'grid-line' }}" x1="{{ sp.pad_l }}" y1="{{ t.y }}" x2="{{ sp.width - sp.pad_r }}" y2="{{ t.y }}"/>
+      <text class="axis-label tick" x="{{ sp.pad_l - 7 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ t.label }}</text>
+      {% endfor %}
+      {% if sp.points | length > 1 %}
+      <polyline class="spread-line" points="{{ sp.polyline }}"/>
+      {% endif %}
+      {% for p in sp.points %}
+      <circle class="spread-dot" cx="{{ p.x }}" cy="{{ p.y }}" r="1.8"><title>{{ p.label }}: {{ "%+.2f" | format(p.value) }}</title></circle>
+      {% endfor %}
+      {% set last = sp.points[-1] %}
+      <circle class="spread-dot last" cx="{{ last.x }}" cy="{{ last.y }}" r="3.2"/>
+      <text class="spread-now num" x="{{ last.x - 8 }}" y="{{ last.y - 7 }}" text-anchor="end">{{ "%+.2f" | format(sp.now) }}</text>
+      {% for p in sp.points if p.show_label %}
+      <text class="axis-label" x="{{ p.x }}" y="{{ sp.height - 5 }}" text-anchor="middle">{{ p.label }}</text>
+      {% endfor %}
+    </svg>
+    <div class="chart-legend">
+      <span>spread <b class="num">{{ sp.a_code }} &minus; {{ sp.b_code }}</b></span>
+      <span><span class="swatch" style="background:var(--hawkish)"></span>above 0 = {{ sp.a_code }} more hawkish</span>
+      <span><span class="swatch" style="background:var(--dovish)"></span>below 0 = {{ sp.b_code }} more hawkish</span>
+    </div>
+  </section>
+  {% else %}
+  <p class="muted empty">Not enough overlapping history between these banks to compute a spread.</p>
+  {% endif %}
+</div>
