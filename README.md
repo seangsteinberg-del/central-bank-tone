@@ -59,6 +59,25 @@ keylessly, or run the worker to ingest at scale. Each speech then has a detail p
 summary and, as of that speech, how far each member of the committee has shifted in tone since
 their previous speech and how the committee moved overall (ADR 0015).
 
+## Run it for real with Gemini, no Docker
+
+If you have a Gemini key and a local PostgreSQL (no pgvector or Docker needed), one command brings
+the real system online (ADR 0018):
+
+```bash
+make live             # real Gemini + native PostgreSQL, ingests real BIS speeches, serves :8000
+```
+
+It scrapes recent speeches from the live BIS index, pulls each one's full text (the linked PDF when
+it is fuller than the HTML intro, rejecting un-extractable glyph-soup PDFs; ADR 0019), scores tone
+and writes summaries with Gemini, stores speakers and speeches in PostgreSQL behind the append-only
+immutability triggers, and answers natural-language questions grounded in an in-process vector
+index. Set `CBT_DATABASE_URL` (default `postgresql+psycopg://cbt:cbt@localhost:5432/cbt`) and
+`CBT_GEMINI_API_KEY` in `.env` first; pass `--limit N` to control how many speeches a pass ingests.
+The canonical production deployment uses pgvector for a shared, persistent vector index; this local
+setup uses the in-process index instead, so question answering covers the speeches ingested in the
+running process.
+
 ## How it works
 
 Scrape a speech (the BIS speeches feed aggregates every tracked central bank) -> validate it
@@ -88,7 +107,7 @@ packages/
 scripts/      check_imports.py (architecture invariants), train_tone_model.py + eval_tone.py +
               tone_trajectory.py + eval_cross_dataset.py (the evaluation above), run_demo.py
               (the keyless demo), migrate.py.
-docs/         CHANGELOG.md, adr/ (17 decision records), research/ (the evaluation with calibration,
+docs/         CHANGELOG.md, adr/ (19 decision records), research/ (the evaluation with calibration,
               the tone-vs-rates study, the out-of-distribution check, and a state-of-the-art survey).
 .github/      CI: ruff, mypy --strict, the import check, the test suite + coverage gate, pip-audit.
 ```

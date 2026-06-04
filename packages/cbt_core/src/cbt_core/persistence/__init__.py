@@ -13,6 +13,7 @@ from cbt_core.persistence.base import Base
 from cbt_core.persistence.engine import (
     create_demo_schema,
     create_engine_from_settings,
+    create_immutability_triggers,
     make_demo_engine,
     make_session_factory,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "ToneObservationRepository",
     "create_demo_schema",
     "create_engine_from_settings",
+    "create_immutability_triggers",
     "make_demo_engine",
     "make_session_factory",
 ]

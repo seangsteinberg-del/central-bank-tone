@@ -123,6 +123,20 @@ All notable changes to this project are documented in this file. The format foll
   members' individual shifts over the members that have a prior reading, with that count). The page
   renders a per-member diverging movement bar scaled to the largest mover. Adds the
   `CommitteeMovement` and `MemberMovement` domain models.
+- Local live setup with no Docker and no pgvector (ADR 0018): `scripts/run_live.py` runs the real
+  Gemini client over a native PostgreSQL database with the in-process vector index, ingests a pass
+  of real BIS speeches, and serves the production UI. `cbt_web.demo.build_demo_services` /
+  `build_demo_app` gained optional `engine`, `llm`, `model_id`, and `max_distance` parameters so the
+  same wiring serves the keyless SQLite demo or the live PostgreSQL + Gemini setup. New
+  `cbt_core.create_immutability_triggers` installs the append-only triggers (mirroring migrations
+  0001 and 0002) on a database built with `create_demo_schema`.
+- Full speech text from the linked BIS PDF (ADR 0019): the BIS source now fetches each speech's
+  `document.path` PDF and extracts it with `pdfminer.six`, preferring the PDF whenever it is fuller
+  than the short HTML intro, so the full speech is scored rather than an abstract. An un-extractable
+  PDF (subset fonts with no ToUnicode map, which extract as `(cid:...)` glyph soup) is rejected by a
+  legibility check and the HTML body is used instead, so unreadable text is never ingested. Adds an
+  injectable `pdf_fetcher`/`pdf_extractor` on `BisSpeechSource` and the `pdfminer.six` dependency
+  (MIT) to `cbt_worker`.
 
 ### Changed
 - Web UI overhaul: the landing page is now a dashboard (thesis hero with the headline finding and a
@@ -164,6 +178,16 @@ All notable changes to this project are documented in this file. The format foll
   RSS feed and the speech body from the `data-react-props` JSON, with institution read from the
   affiliation clause (not the venue), plus fetcher retry/backoff. The previous selectors could not
   work against bis.org.
+- The BIS listing title now strips a multi-author byline prefix (for example
+  `"Carolyn Rogers,Toni Gravelle: Release of the FSR"`), not only a prefix matching the single
+  `dc:creator`, while leaving a colon inside the real title intact. A body below a minimum word
+  count (an empty page or an unreadable stub) is skipped rather than ingested as a non-scoreable
+  speech.
+- `GeminiClient.embed` now L2-normalizes each embedding. `gemini-embedding-001` is not unit-length
+  at the reduced `output_dimensionality` the platform requests, but the cosine-distance retrievers
+  treat a dot product as a cosine similarity, so un-normalized vectors made every chunk read as far
+  away and question answering wrongly abstained. Normalizing at the source (as the offline client
+  already did) restores grounded retrieval; pgvector's cosine operator was unaffected.
 - The lexicon no longer double-counts a phrase via its substring or cancels a hawkish phrase
   against a dovish substring (for example "withdraw accommodation").
 - Retrieval (`QaService`) now applies a maximum-distance relevance threshold, so an off-topic

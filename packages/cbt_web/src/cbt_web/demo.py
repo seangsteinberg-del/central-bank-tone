@@ -24,6 +24,7 @@ from cbt_core import (
     IndexingService,
     IngestionService,
     InMemoryChunkRetriever,
+    LlmClient,
     OfflineLlmClient,
     QaService,
     SpeakerService,
@@ -38,6 +39,7 @@ from cbt_web.app import create_app
 from cbt_web.dependencies import Services
 
 if TYPE_CHECKING:
+    from sqlalchemy import Engine
     from sqlalchemy.orm import Session, sessionmaker
 
 # Hashing embeddings (ADR 0014) carry less absolute cosine similarity than learned embeddings, so
@@ -65,7 +67,7 @@ class _DemoIndexer(IndexingService):
     def __init__(
         self,
         session_factory: sessionmaker[Session],
-        llm: OfflineLlmClient,
+        llm: LlmClient,
         *,
         retriever: InMemoryChunkRetriever,
         ingestion: IngestionService,
@@ -74,7 +76,8 @@ class _DemoIndexer(IndexingService):
 
         Args:
             session_factory: The session factory (passed through to the base service).
-            llm: The offline client used to embed chunks.
+            llm: The client used to embed chunks (the offline client, or a real Gemini client
+                for the live setup).
             retriever: The in-memory retriever to populate.
             ingestion: Used to load a speech's text and metadata by id.
         """
@@ -103,25 +106,43 @@ class _DemoIndexer(IndexingService):
         return len(chunks)
 
 
-def build_demo_services(speeches: list[SeedSpeech], *, db_path: str | None = None) -> Services:
-    """Build a SQLite-backed, offline-client service container and seed it with a corpus.
+def build_demo_services(
+    speeches: list[SeedSpeech],
+    *,
+    db_path: str | None = None,
+    engine: Engine | None = None,
+    llm: LlmClient | None = None,
+    model_id: str = _DEMO_MODEL_ID,
+    max_distance: float = _DEMO_MAX_DISTANCE,
+) -> Services:
+    """Build a service container backed by an in-memory retriever and seed it with a corpus.
+
+    The defaults give the keyless demo: a SQLite database and the offline client, so the tone
+    signal and retrieval need no Gemini key. Injecting ``engine`` and ``llm`` builds the live
+    setup instead: the real Gemini client over a PostgreSQL engine, with the same in-memory
+    vector index, so no pgvector is required (ADR 0018).
 
     Args:
-        speeches: The corpus to seed (ingested and indexed in order).
-        db_path: A SQLite file path, or ``None`` for a shared in-memory database.
+        speeches: The corpus to seed (ingested and indexed in order); may be empty.
+        db_path: A SQLite file path, or ``None`` for a shared in-memory database. Ignored when
+            ``engine`` is provided.
+        engine: An explicit engine (for example a PostgreSQL one); built from ``db_path`` if omitted.
+        llm: The LLM client; the keyless :class:`OfflineLlmClient` if omitted.
+        model_id: The model id recorded on each ingested speech.
+        max_distance: The retrieval relevance threshold (cosine distance) for question answering.
 
     Returns:
-        A fully wired :class:`Services` container whose tone signal and retrieval need no key.
+        A fully wired :class:`Services` container.
     """
     settings = get_settings()
-    engine = make_demo_engine(db_path)
+    engine = engine if engine is not None else make_demo_engine(db_path)
     create_demo_schema(engine)
     session_factory = make_session_factory(engine)
 
-    llm = OfflineLlmClient()
+    llm = llm if llm is not None else OfflineLlmClient()
     retriever = InMemoryChunkRetriever()
     speaker_service = SpeakerService(session_factory)
-    ingestion = IngestionService(session_factory, llm, model_id=_DEMO_MODEL_ID)
+    ingestion = IngestionService(session_factory, llm, model_id=model_id)
     indexer = _DemoIndexer(session_factory, llm, retriever=retriever, ingestion=ingestion)
 
     for seed in speeches:
@@ -144,25 +165,46 @@ def build_demo_services(speeches: list[SeedSpeech], *, db_path: str | None = Non
         tone_service=ToneService(session_factory),
         ingestion_service=ingestion,
         indexing_service=indexer,
-        qa_service=QaService(llm, retriever, speaker_service, max_distance=_DEMO_MAX_DISTANCE),
+        qa_service=QaService(llm, retriever, speaker_service, max_distance=max_distance),
         committee_service=CommitteeService(session_factory),
     )
 
 
-def build_demo_app(speeches: list[SeedSpeech], *, db_path: str | None = None) -> FastAPI:
-    """Build the web application in keyless demo mode, seeded with ``speeches``.
+def build_demo_app(
+    speeches: list[SeedSpeech],
+    *,
+    db_path: str | None = None,
+    engine: Engine | None = None,
+    llm: LlmClient | None = None,
+    model_id: str = _DEMO_MODEL_ID,
+    max_distance: float = _DEMO_MAX_DISTANCE,
+) -> FastAPI:
+    """Build the web application over an in-memory retriever, seeded with ``speeches``.
 
     Reuses the production application factory (middleware, exception handlers, static mount, and
-    routes) and swaps the service container for the SQLite + offline-client one, so the demo
-    exercises exactly the same views as production.
+    routes) and swaps in the in-memory-retriever service container, so it exercises exactly the
+    same views as production. With the defaults this is the keyless demo; injecting ``engine`` and
+    ``llm`` builds the live setup (real Gemini over PostgreSQL; see :func:`build_demo_services`).
 
     Args:
         speeches: The corpus to seed.
-        db_path: A SQLite file path, or ``None`` for a shared in-memory database.
+        db_path: A SQLite file path, or ``None`` for a shared in-memory database. Ignored when
+            ``engine`` is provided.
+        engine: An explicit engine; built from ``db_path`` if omitted.
+        llm: The LLM client; the keyless :class:`OfflineLlmClient` if omitted.
+        model_id: The model id recorded on each ingested speech.
+        max_distance: The retrieval relevance threshold (cosine distance) for question answering.
 
     Returns:
-        The configured demo application.
+        The configured application.
     """
     app = create_app()
-    app.state.services = build_demo_services(speeches, db_path=db_path)
+    app.state.services = build_demo_services(
+        speeches,
+        db_path=db_path,
+        engine=engine,
+        llm=llm,
+        model_id=model_id,
+        max_distance=max_distance,
+    )
     return app

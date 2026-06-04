@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -66,15 +67,20 @@ def test_analyze_tone_raises_llm_error_on_unparseable_response(text: object) -> 
 
 
 @pytest.mark.unit
-def test_embed_returns_one_vector_per_text() -> None:
+def test_embed_returns_one_normalized_vector_per_text() -> None:
     client = _client()
+    # gemini-embedding-001 is not unit-length at a reduced dimensionality; embed must normalize so
+    # the cosine-distance retrievers (which take a dot product as a cosine) work correctly.
     vector = [0.1] * EMBEDDING_DIM
     client.models.embed_content.return_value.embeddings = [
         MagicMock(values=vector),
         MagicMock(values=vector),
     ]
     result = _gemini(client).embed(["a", "b"])
-    assert result == [vector, vector]
+    assert len(result) == 2
+    for vec in result:
+        assert len(vec) == EMBEDDING_DIM
+        assert math.isclose(math.sqrt(sum(v * v for v in vec)), 1.0, rel_tol=1e-9)
     assert client.models.embed_content.call_args.kwargs["model"] == "gemini-embedding-001"
 
 

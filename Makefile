@@ -1,5 +1,5 @@
 # Developer and demo shortcuts. See README.md for the manual (Windows/PowerShell) equivalents.
-.PHONY: help sync gate test lint db-up db-down migrate eval eval-cross train chart serve demo demo-lite
+.PHONY: help sync gate test lint db-up db-down migrate eval eval-cross train chart serve demo demo-lite live
 
 help:
 	@echo "sync       - install the workspace (uv sync)"
@@ -8,6 +8,7 @@ help:
 	@echo "eval-cross - out-of-distribution check: score the classifier on op-fed (MIT)"
 	@echo "train      - retrain the supervised tone-model artifact"
 	@echo "demo-lite  - serve the keyless UI with NO key and NO Docker (SQLite + offline model); starts empty"
+	@echo "live       - real Gemini + native PostgreSQL, NO Docker/pgvector: ingest real speeches and serve"
 	@echo "db-up      - start Postgres + pgvector (docker compose)"
 	@echo "migrate    - apply migrations to head"
 	@echo "serve      - run the web UI (uvicorn, reload)"
@@ -38,6 +39,9 @@ train:
 
 demo-lite:
 	uv run python scripts/run_demo.py
+
+live:
+	uv run python scripts/run_live.py
 
 db-up:
 	docker compose up -d db

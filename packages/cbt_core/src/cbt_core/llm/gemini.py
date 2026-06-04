@@ -7,6 +7,7 @@ or malformed model response raises :class:`LlmError` rather than fabricating a r
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 
 from google import genai
@@ -57,6 +58,26 @@ _ANSWER_INSTRUCTION = (
     "their speeches. Ground every statement in the excerpts and do not use outside knowledge. "
     "If the excerpts do not contain the answer, say so plainly."
 )
+
+
+def _l2_normalize(values: list[float]) -> list[float]:
+    """Scale a vector to unit length.
+
+    ``gemini-embedding-001`` does not return unit vectors at a reduced ``output_dimensionality``,
+    but the cosine-distance retrievers treat embeddings as L2-normalized (so a dot product is a
+    cosine similarity), as does the offline client. Normalizing here keeps that contract. A zero
+    vector is returned unchanged.
+
+    Args:
+        values: The raw embedding vector.
+
+    Returns:
+        The vector scaled to unit L2 norm.
+    """
+    norm = math.sqrt(sum(value * value for value in values))
+    if norm == 0.0:
+        return values
+    return [value / norm for value in values]
 
 
 class GeminiClient:
@@ -147,7 +168,7 @@ class GeminiClient:
         for item in embeddings:
             if item.values is None:
                 raise LlmError("Gemini returned an embedding with no values")
-            vectors.append(list(item.values))
+            vectors.append(_l2_normalize(list(item.values)))
         return vectors
 
     def answer(self, question: str, chunks: Sequence[RetrievedChunk]) -> str:

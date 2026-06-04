@@ -35,15 +35,17 @@ _REQUEST_DELAY_SECONDS = 0.5  # polite rate limit between requests to one host
 _DEFAULT_LIMIT = 50
 
 
-def _get(url: str) -> str:  # pragma: no cover - network IO, exercised in production only
+def _get(url: str) -> httpx.Response:  # pragma: no cover - network IO, exercised in production only
     response = httpx.get(
         url, timeout=30.0, headers={"User-Agent": _USER_AGENT}, follow_redirects=True
     )
     response.raise_for_status()
-    return response.text
+    return response
 
 
-def _http_fetcher(url: str) -> str:  # pragma: no cover - network IO, exercised in production only
+def _with_retry(  # pragma: no cover - network IO, exercised in production only
+    url: str,
+) -> httpx.Response:
     """Fetch a URL politely: a small inter-request delay and retry-with-backoff on failure."""
     time.sleep(_REQUEST_DELAY_SECONDS)
     for attempt in range(_MAX_ATTEMPTS - 1):
@@ -52,6 +54,16 @@ def _http_fetcher(url: str) -> str:  # pragma: no cover - network IO, exercised 
         except httpx.HTTPError:
             time.sleep(_BACKOFF_BASE_SECONDS * (2**attempt))
     return _get(url)  # the final attempt lets the error propagate
+
+
+def _http_fetcher(url: str) -> str:  # pragma: no cover - network IO, exercised in production only
+    """Fetch a URL's text politely (delay plus retry-with-backoff)."""
+    return _with_retry(url).text
+
+
+def _pdf_fetcher(url: str) -> bytes:  # pragma: no cover - network IO, exercised in production only
+    """Fetch a URL's raw bytes politely (delay plus retry-with-backoff), for linked speech PDFs."""
+    return _with_retry(url).content
 
 
 def _select_source(
@@ -64,7 +76,7 @@ def _select_source(
     if "--bulk" in argv:
         path = Path(argv[argv.index("--bulk") + 1])
         return BisBulkSpeechSource(path.read_bytes), limit
-    return BisSpeechSource(_http_fetcher), limit
+    return BisSpeechSource(_http_fetcher, pdf_fetcher=_pdf_fetcher), limit
 
 
 def main() -> int:  # pragma: no cover - composition root wiring, exercised in production only

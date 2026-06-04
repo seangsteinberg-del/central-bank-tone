@@ -8,12 +8,32 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from cbt_core.persistence.base import Base
 from cbt_core.settings import Settings
+
+# The append-only trigger DDL, mirroring migrations 0001 (tone_observation) and 0002 (speech). The
+# alembic migrations are the source of truth for the production schema; this constant lets a setup
+# that builds its schema with create_all (the no-pgvector live database, ADR 0018) install the same
+# database-level immutability guarantee (CLAUDE.md section 4). Keep the two in sync. PostgreSQL only.
+_IMMUTABILITY_DDL: tuple[str, ...] = (
+    """
+    CREATE OR REPLACE FUNCTION cbt_block_mutation() RETURNS trigger AS $$
+    BEGIN
+        RAISE EXCEPTION '% is append-only; % is not permitted', TG_TABLE_NAME, TG_OP;
+    END;
+    $$ LANGUAGE plpgsql;
+    """,
+    "DROP TRIGGER IF EXISTS tone_observation_append_only ON tone_observation;",
+    "CREATE TRIGGER tone_observation_append_only BEFORE UPDATE OR DELETE ON tone_observation "
+    "FOR EACH ROW EXECUTE FUNCTION cbt_block_mutation();",
+    "DROP TRIGGER IF EXISTS speech_append_only ON speech;",
+    "CREATE TRIGGER speech_append_only BEFORE UPDATE OR DELETE ON speech "
+    "FOR EACH ROW EXECUTE FUNCTION cbt_block_mutation();",
+)
 
 if TYPE_CHECKING:
     from sqlalchemy import Table
@@ -84,3 +104,21 @@ def create_demo_schema(engine: Engine) -> None:
         [SpeakerRow.__table__, SpeechRow.__table__, ToneObservationRow.__table__],
     )
     Base.metadata.create_all(engine, tables=tables)
+
+
+def create_immutability_triggers(engine: Engine) -> None:
+    """Install the append-only triggers on ``speech`` and ``tone_observation`` (PostgreSQL).
+
+    For the no-pgvector live database (ADR 0018), which builds its schema with
+    :func:`create_demo_schema` rather than the alembic migrations, this installs the same
+    database-level append-only guarantee the migrations would (CLAUDE.md section 4): a trigger
+    rejects any UPDATE or DELETE on either table. Idempotent (the triggers are dropped first).
+
+    Args:
+        engine: A PostgreSQL engine whose ``speech`` and ``tone_observation`` tables already exist.
+            Not for SQLite, whose dialect has no PL/pgSQL; the keyless SQLite demo relies on the
+            repositories exposing no update or delete instead.
+    """
+    with engine.begin() as connection:
+        for statement in _IMMUTABILITY_DDL:
+            connection.execute(text(statement))

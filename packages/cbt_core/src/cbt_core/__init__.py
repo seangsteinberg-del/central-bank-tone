@@ -54,6 +54,7 @@ from cbt_core.persistence import (
     SpeechRetriever,
     create_demo_schema,
     create_engine_from_settings,
+    create_immutability_triggers,
     make_demo_engine,
     make_session_factory,
 )
@@ -111,6 +112,7 @@ __all__ = [
     "configure_logging",
     "create_demo_schema",
     "create_engine_from_settings",
+    "create_immutability_triggers",
     "get_logger",
     "get_settings",
     "make_demo_engine",
