@@ -7,6 +7,18 @@ All notable changes to this project are documented in this file. The format foll
 ## [Unreleased]
 
 ### Added
+- Sentence-level stance aggregation engine (`cbt_core.analysis.stance`, ADR 0021), the pure,
+  model-agnostic heart of a structured tone pipeline that replaces the single greedy whole-speech
+  call (the weakest documented method; see `docs/research/tone-sota-blueprint.md`). It splits a
+  speech, keeps policy-relevant sentences with a Gorodnichenko-style `PolicyRelevanceFilter`, and
+  aggregates classifier-assigned sentence labels with the Trillion Dollar Words measure
+  `(#Hawkish - #Dovish) / #relevant` (`aggregate_stances`), alongside a forward-looking sub-measure
+  (rate-path intent, separated from backward-looking description) and a per-aspect breakdown
+  (inflation, growth, employment, balance sheet, financial stability, guidance). The continuous
+  measure maps to a `ToneLabel` with an honest `MIXED` only when both sides are materially present
+  and an honest abstention (`NEUTRAL`) when no policy-relevant sentence is found. Who classifies each
+  sentence is injected (Gemini in production, the supervised classifier offline, a stub in tests), so
+  the reproducible accounting is tested with no network or GPU.
 - Dashboard Policy Monitor, a macro-desk redesign of the landing page. The hero is now a sortable
   bank-by-bank matrix (current committee stance with a diverging move-track, 1-month and 3-month
   change, a 6-month inline sparkline, and the hawk/dove committee split), with server-rendered

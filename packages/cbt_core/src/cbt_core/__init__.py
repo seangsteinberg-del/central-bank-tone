@@ -8,11 +8,18 @@ internals (rows, mappers) are deliberately not exported.
 from __future__ import annotations
 
 from cbt_core.analysis import (
+    Aspect,
+    ClassifiedSentence,
     ClassifierScore,
     HawkishDovishLexicon,
+    Horizon,
     LexiconScore,
+    PolicyRelevanceFilter,
+    StanceAggregate,
+    StanceLabel,
     ToneClassifier,
     ToneModelError,
+    aggregate_stances,
     chunk_text,
 )
 from cbt_core.domain import (
@@ -71,9 +78,11 @@ from cbt_core.settings import Environment, Settings, get_settings
 
 __all__ = [
     "Answer",
+    "Aspect",
     "CbtError",
     "CentralBank",
     "Citation",
+    "ClassifiedSentence",
     "ClassifierScore",
     "CommitteeMovement",
     "CommitteeService",
@@ -82,6 +91,7 @@ __all__ = [
     "Environment",
     "GeminiClient",
     "HawkishDovishLexicon",
+    "Horizon",
     "ImmutableRecordError",
     "InMemoryChunkRetriever",
     "IndexingService",
@@ -94,6 +104,7 @@ __all__ = [
     "MemberMovement",
     "OfflineLlmClient",
     "PersistentChunkRetriever",
+    "PolicyRelevanceFilter",
     "QaService",
     "RetrievedChunk",
     "Settings",
@@ -101,12 +112,15 @@ __all__ = [
     "SpeakerService",
     "Speech",
     "SpeechRetriever",
+    "StanceAggregate",
+    "StanceLabel",
     "ToneAnalysis",
     "ToneClassifier",
     "ToneLabel",
     "ToneModelError",
     "ToneObservation",
     "ToneService",
+    "aggregate_stances",
     "bind_request_context",
     "build_gemini_client",
     "chunk_text",
