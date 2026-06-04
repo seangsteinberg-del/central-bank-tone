@@ -11,6 +11,7 @@ from cbt_core.services.indexing_service import IndexingService
 from cbt_core.services.ingestion_service import IngestionService
 from cbt_core.services.qa_service import ChunkRetriever, QaService
 from cbt_core.services.speaker_service import SpeakerService
+from cbt_core.services.stance_service import StanceService
 from cbt_core.services.tone_service import ToneService
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "IngestionService",
     "QaService",
     "SpeakerService",
+    "StanceService",
     "ToneService",
 ]

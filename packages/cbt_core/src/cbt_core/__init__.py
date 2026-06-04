@@ -16,6 +16,7 @@ from cbt_core.analysis import (
     LexiconScore,
     PolicyRelevanceFilter,
     StanceAggregate,
+    StanceAssessment,
     StanceLabel,
     ToneClassifier,
     ToneModelError,
@@ -72,6 +73,7 @@ from cbt_core.services import (
     IngestionService,
     QaService,
     SpeakerService,
+    StanceService,
     ToneService,
 )
 from cbt_core.settings import Environment, Settings, get_settings
@@ -113,7 +115,9 @@ __all__ = [
     "Speech",
     "SpeechRetriever",
     "StanceAggregate",
+    "StanceAssessment",
     "StanceLabel",
+    "StanceService",
     "ToneAnalysis",
     "ToneClassifier",
     "ToneLabel",

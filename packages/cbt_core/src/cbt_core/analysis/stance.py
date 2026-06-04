@@ -29,6 +29,7 @@ or a GPU.
 
 from __future__ import annotations
 
+import itertools
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -42,6 +43,11 @@ from cbt_core.domain.tone import ToneLabel
 # caller can tune them without editing this module.
 _DEFAULT_NEUTRAL_BAND = 0.05
 _DEFAULT_MIXED_MIN_SHARE = 0.25
+
+# A spread among the (fired) ensemble signals at least this large flags a speech for review, as does
+# any opposite-sign disagreement. Matches the lexicon cross-check threshold (ADR 0008): a large
+# disagreement is surfaced as uncertainty, not averaged away.
+_DEFAULT_REVIEW_THRESHOLD = 0.5
 
 _SENTENCE_RE = re.compile(r"[^.!?]+[.!?]?")
 _WORD_RE = re.compile(r"[a-z']+")
@@ -492,4 +498,77 @@ def aggregate_stances(
         forward_net=net_hawkishness(forward_hawkish, forward_dovish, len(forward)),
         forward_relevant=len(forward),
         by_aspect=by_aspect,
+    )
+
+
+@dataclass(frozen=True)
+class StanceAssessment:
+    """The ensembled stance verdict for a speech (ADR 0021): one score with an uncertainty band.
+
+    The production ``score`` is the model's sentence-level measure (the strongest single signal); the
+    classifier and lexicon are independent cross-checks, never averaged into the score. Their spread
+    from the model is the ``uncertainty``: a wide spread or an opposite-sign disagreement sets
+    ``needs_review``, surfacing distrust rather than hiding it (ADR 0008).
+
+    Attributes:
+        score: The production net-hawkishness, taken from the model aggregate, in ``[-1.0, 1.0]``.
+        tone: The discrete document tone from the model aggregate.
+        aggregate: The full model :class:`StanceAggregate` (forward sub-measure, per-aspect, counts).
+        classifier_net: The supervised classifier's net-hawkishness cross-check over the same
+            sentences.
+        lexicon_score: The deterministic lexicon's net-hawkishness cross-check.
+        uncertainty: The spread (max minus min) among the fired signals, in ``[0.0, 2.0]``; ``0.0``
+            when fewer than two signals fired.
+        needs_review: Whether the signals disagree enough to warrant review (a spread at or above
+            the threshold, or any opposite-sign disagreement).
+    """
+
+    score: float
+    tone: ToneLabel
+    aggregate: StanceAggregate
+    classifier_net: float
+    lexicon_score: float
+    uncertainty: float
+    needs_review: bool
+
+
+def combine_signals(
+    aggregate: StanceAggregate,
+    classifier_net: float,
+    lexicon_score: float,
+    *,
+    lexicon_fired: bool,
+    review_threshold: float = _DEFAULT_REVIEW_THRESHOLD,
+) -> StanceAssessment:
+    """Combine the model aggregate with the classifier and lexicon cross-checks into one verdict.
+
+    The model aggregate is the production signal; the classifier and lexicon are not averaged into
+    it (ADR 0008) but compared against it to quantify uncertainty. The lexicon is included only when
+    it fired, since an abstention is not a disagreement.
+
+    Args:
+        aggregate: The model's :class:`StanceAggregate` for the speech.
+        classifier_net: The supervised classifier's net-hawkishness over the same sentences.
+        lexicon_score: The deterministic lexicon's net-hawkishness for the speech.
+        lexicon_fired: Whether the lexicon matched any term (so its score carries signal).
+        review_threshold: The minimum spread that flags the speech for review.
+
+    Returns:
+        The :class:`StanceAssessment` carrying the production score, the cross-checks, the spread,
+        and the review flag.
+    """
+    signals = [aggregate.net_hawkishness, classifier_net]
+    if lexicon_fired:
+        signals.append(lexicon_score)
+    spread = max(signals) - min(signals)
+    opposite_sign = any(a * b < 0 for a, b in itertools.combinations(signals, 2))
+    needs_review = spread >= review_threshold or opposite_sign
+    return StanceAssessment(
+        score=aggregate.net_hawkishness,
+        tone=aggregate.tone,
+        aggregate=aggregate,
+        classifier_net=classifier_net,
+        lexicon_score=lexicon_score,
+        uncertainty=spread,
+        needs_review=needs_review,
     )
