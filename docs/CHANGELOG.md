@@ -69,6 +69,11 @@ All notable changes to this project are documented in this file. The format foll
   51.8% / 0.339; `scripts/eval_tone.py` now runs a three-way head-to-head and adds a McNemar
   significance test (p = 0.012) and a bootstrap confidence interval for the gain over the lexicon.
   Adds `numpy` as a `cbt_core` runtime dependency.
+- Stronger thesis test: `scripts/tone_trajectory.py` now builds both a lexicon and a classifier
+  annual tone index and relates them to three FRED series (the fed funds rate and the 2-year and
+  10-year Treasury yields), reporting every correlation with a bootstrap 95% CI plus an OLS
+  regression of the same-year change in the 2-year yield on tone (slope +6.89, bootstrap CI
+  [+2.31, +14.22] excluding zero). FRED responses are cached for reproducibility.
 - Real model/lexicon cross-check: `cbt_core.analysis.disagrees`, persisted as `lexicon_score` and
   `needs_review` on the tone observation (migration 0004) and on the speech, logged as a WARNING on
   divergence and shown as a "model/lexicon disagree" marker in the UI and on the API responses.
