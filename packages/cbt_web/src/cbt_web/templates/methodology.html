@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Methodology - Central Bank Tone{% endblock %}
+{% block content %}
+<a class="back" href="/">&larr; Dashboard</a>
+<h1>Methodology: how tone is scored, and how well it works</h1>
+<p class="muted">
+  The value of this platform is a tone signal, so the signal is measured against labeled data
+  rather than asserted. Everything below is reproducible offline with <code>make eval</code>.
+</p>
+
+<section class="panel">
+  <h2>Three scorers, cross-checked</h2>
+  <div class="pill-row">
+    <span class="pill">Gemini LLM judge (production, multilingual)</span>
+    <span class="pill">Supervised TF-IDF classifier (offline)</span>
+    <span class="pill">Deterministic hawkish/dovish lexicon (audit floor)</span>
+  </div>
+  <p>
+    Each speech gets a tone label and a continuous score in <span class="num">[-1, +1]</span>.
+    The deterministic lexicon is a transparent cross-check on the model: when the model and the
+    lexicon disagree by a large margin, the speech is flagged <span class="review-badge">model/lexicon disagree</span>
+    rather than the disagreement being averaged away.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Does it work? Accuracy on the FOMC benchmark</h2>
+  <p class="muted" style="margin-top:-4px">
+    Held-out test split of "Trillion Dollar Words" (Shah, Paturi, Chava, ACL 2023): FOMC
+    sentences labeled hawkish / dovish / neutral. Every hyperparameter was chosen on train only.
+  </p>
+  <table class="method-table">
+    <thead>
+      <tr><th>Scorer</th><th class="num">Accuracy</th><th class="num">Macro-F1</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Majority-class baseline</td><td class="num">49.8%</td><td class="num">0.222</td><td class="muted">always guess "neutral"</td></tr>
+      <tr><td>Deterministic lexicon</td><td class="num">51.8%</td><td class="num">0.339</td><td class="muted">transparent, license-clean floor</td></tr>
+      <tr class="best"><td>Supervised classifier</td><td class="num win">59.9%</td><td class="num win">0.582</td><td>TF-IDF + logistic regression, offline</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    The classifier's gain over the lexicon is statistically significant: McNemar
+    <span class="num">p = 0.012</span>, and the bootstrap 95% CI on the accuracy gap is
+    <span class="num">[+2.2%, +14.1%]</span> (excludes zero). It is a credible linear baseline, not
+    a claim of state of the art.
+  </div>
+  <img class="research-img" src="/static/img/tone-confusion-matrix.png"
+       alt="Confusion matrices for the lexicon and the supervised classifier on the FOMC test split">
+</section>
+
+<section class="panel">
+  <h2>Does the tone track policy?</h2>
+  <p class="muted" style="margin-top:-4px">
+    Annual FOMC tone vs the fed funds rate and the 2- and 10-year Treasury yields (FRED), 1996-2022.
+  </p>
+  <img class="research-img" src="/static/img/tone-vs-rates.png"
+       alt="FOMC communication tone plotted against policy rates, and a scatter of tone vs the change in the 2-year yield">
+  <div class="callout">
+    Regressing the same-year change in the 2-year Treasury yield on annual tone gives a slope of
+    <span class="num">+6.89</span> (bootstrap 95% CI <span class="num">[+2.31, +14.22]</span>,
+    excludes zero; Pearson <span class="num">r = +0.35</span>). In years the FOMC sounded more
+    hawkish, the market repriced near-term policy higher within the same year. This is a
+    descriptive, same-year link, not a predictive or causal claim; the next-year lead terms are
+    near zero, as expected for an already-public signal.
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Honest limitations</h2>
+  <ul>
+    <li>The supervised classifier is a linear bag-of-words model; fine-tuned transformers score higher.</li>
+    <li>The economic link is annual and descriptive over a small sample, not a trading signal.</li>
+    <li>In the keyless demo, tone is the offline classifier and answers are extractive (clearly
+      labeled); the production path uses the Gemini judge and generative answers.</li>
+  </ul>
+  <p class="muted">
+    Full numbers and the reproducible scripts:
+    <code>docs/research/tone-evaluation.md</code> and <code>docs/research/tone-vs-rates.md</code>.
+  </p>
+</section>
+{% endblock %}

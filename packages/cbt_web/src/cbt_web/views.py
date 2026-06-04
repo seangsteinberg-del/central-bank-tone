@@ -9,13 +9,14 @@ requests when htmx (or JavaScript) is unavailable.
 
 from __future__ import annotations
 
-from typing import Annotated, NamedTuple
+from dataclasses import dataclass
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Form, Request, Response
 from pydantic import ValidationError
 
-from cbt_core import CentralBank, Speaker, ToneLabel, ToneObservation
+from cbt_core import CentralBank, Speaker, Speech, ToneLabel, ToneObservation
 from cbt_web.dependencies import (
     IndexingServiceDep,
     IngestionServiceDep,
@@ -28,15 +29,67 @@ from cbt_web.templating import templates
 
 router = APIRouter()
 
+# SVG tone-chart geometry (a 720x210 viewBox with padding); the score axis runs +1 .. -1.
+_CHART_W = 720.0
+_CHART_H = 210.0
+_PAD_L = 12.0
+_PAD_R = 12.0
+_PLOT_TOP = 18.0
+_PLOT_BOTTOM = 184.0
+_MID_Y = (_PLOT_TOP + _PLOT_BOTTOM) / 2.0
+_HALF_H = (_PLOT_BOTTOM - _PLOT_TOP) / 2.0
+_MAX_LABELS = 14
 
-class TimelinePoint(NamedTuple):
-    """One point on a speaker's tone-over-time chart, with its diverging-bar geometry."""
 
-    observed_at: object
+@dataclass(frozen=True)
+class ChartPoint:
+    """One plotted tone observation in the SVG chart's coordinate space."""
+
+    x: float
+    y: float
+    zero_y: float
     tone: ToneLabel
     score: float
-    left: float
+    label: str
+    show_label: bool
+
+
+@dataclass(frozen=True)
+class ToneChart:
+    """Precomputed geometry for the speaker's tone-over-time SVG line chart."""
+
     width: float
+    height: float
+    pad_l: float
+    pad_r: float
+    mid_y: float
+    plot_top: float
+    plot_bottom: float
+    points: list[ChartPoint]
+    polyline: str
+
+
+@dataclass(frozen=True)
+class LeaderRow:
+    """A speaker's latest tone reading, for the dashboard leaderboards."""
+
+    speaker: Speaker
+    score: float
+    tone: ToneLabel
+    count: int
+
+
+@dataclass(frozen=True)
+class CorpusOverview:
+    """Aggregate corpus statistics for the dashboard."""
+
+    speakers: int
+    speeches: int
+    observations: int
+    flagged: int
+    hawkish: list[LeaderRow]
+    dovish: list[LeaderRow]
+    recent: list[tuple[Speaker, Speech]]
 
 
 def _matches(speaker: Speaker, query: str) -> bool:
@@ -47,23 +100,84 @@ def _matches(speaker: Speaker, query: str) -> bool:
     return needle in speaker.name.casefold() or needle in speaker.central_bank.value.casefold()
 
 
-def _timeline(observations: list[ToneObservation]) -> list[TimelinePoint]:
-    """Build diverging-bar points from observations: hawkish extends right, dovish left."""
-    points: list[TimelinePoint] = []
-    for observation in observations:
+def _tone_chart(observations: list[ToneObservation]) -> ToneChart | None:
+    """Build SVG line-chart geometry from a speaker's tone observations, or None if there are none."""
+    if not observations:
+        return None
+    count = len(observations)
+    span = _CHART_W - _PAD_L - _PAD_R
+    step = max(1, round(count / _MAX_LABELS))
+    points: list[ChartPoint] = []
+    for index, observation in enumerate(observations):
+        x = _PAD_L + span / 2.0 if count == 1 else _PAD_L + span * index / (count - 1)
         bounded = max(-1.0, min(1.0, observation.score))
-        half = abs(bounded) * 50.0
-        left = 50.0 if bounded >= 0 else 50.0 - half
+        y = _MID_Y - bounded * _HALF_H
         points.append(
-            TimelinePoint(
-                observed_at=observation.observed_at,
+            ChartPoint(
+                x=round(x, 1),
+                y=round(y, 1),
+                zero_y=_MID_Y,
                 tone=observation.tone,
                 score=observation.score,
-                left=left,
-                width=half,
+                label=f"{observation.observed_at.year}",
+                show_label=count <= _MAX_LABELS or index % step == 0,
             )
         )
-    return points
+    polyline = " ".join(f"{p.x},{p.y}" for p in points)
+    return ToneChart(
+        width=_CHART_W,
+        height=_CHART_H,
+        pad_l=_PAD_L,
+        pad_r=_PAD_R,
+        mid_y=_MID_Y,
+        plot_top=_PLOT_TOP,
+        plot_bottom=_PLOT_BOTTOM,
+        points=points,
+        polyline=polyline,
+    )
+
+
+def _corpus_overview(
+    speakers: list[Speaker], tone: ToneServiceDep, ingestion: IngestionServiceDep
+) -> CorpusOverview:
+    """Aggregate corpus-wide stats and leaderboards from the per-speaker services.
+
+    This iterates the speakers (a small set in this single-operator tool); a high-cardinality
+    deployment would push these aggregates into a dedicated read model.
+    """
+    speech_total = 0
+    observation_total = 0
+    flagged = 0
+    leaders: list[LeaderRow] = []
+    recent: list[tuple[Speaker, Speech]] = []
+    for speaker in speakers:
+        observations = tone.observations_for(speaker.id)
+        speeches = ingestion.list_speeches(speaker.id)
+        observation_total += len(observations)
+        speech_total += len(speeches)
+        flagged += sum(1 for speech in speeches if speech.needs_review)
+        recent.extend((speaker, speech) for speech in speeches)
+        if observations:
+            latest = observations[-1]
+            leaders.append(
+                LeaderRow(
+                    speaker=speaker, score=latest.score, tone=latest.tone, count=len(observations)
+                )
+            )
+    recent.sort(key=lambda pair: pair[1].delivered_at, reverse=True)
+    hawkish = sorted(
+        (row for row in leaders if row.score > 0), key=lambda row: row.score, reverse=True
+    )
+    dovish = sorted((row for row in leaders if row.score < 0), key=lambda row: row.score)
+    return CorpusOverview(
+        speakers=len(speakers),
+        speeches=speech_total,
+        observations=observation_total,
+        flagged=flagged,
+        hawkish=hawkish[:6],
+        dovish=dovish[:6],
+        recent=recent[:6],
+    )
 
 
 def _first_error(exc: ValidationError) -> str:
@@ -80,11 +194,26 @@ def health() -> dict[str, str]:
 
 
 @router.get("/")
-def index(request: Request, speakers: SpeakerServiceDep) -> Response:
-    """Render the landing page: the speaker directory and the corpus-wide ask box."""
+def index(
+    request: Request,
+    speakers: SpeakerServiceDep,
+    tone: ToneServiceDep,
+    ingestion: IngestionServiceDep,
+) -> Response:
+    """Render the dashboard: the thesis, corpus stats, leaderboards, recent speeches, and search."""
+    all_speakers = speakers.list_speakers()
+    overview = _corpus_overview(all_speakers, tone, ingestion)
     return templates.TemplateResponse(
-        request, "index.html", {"speakers": speakers.list_speakers(), "query": ""}
+        request,
+        "index.html",
+        {"speakers": all_speakers, "overview": overview, "query": ""},
     )
+
+
+@router.get("/methodology")
+def methodology(request: Request) -> Response:
+    """Render the methodology page: how tone is scored and how well it is measured to work."""
+    return templates.TemplateResponse(request, "methodology.html", {})
 
 
 @router.get("/ui/speakers")
@@ -113,8 +242,10 @@ def speaker_detail(
         "speaker.html",
         {
             "speaker": speaker,
-            "timeline": _timeline(observations),
+            "chart": _tone_chart(observations),
+            "observation_count": len(observations),
             "latest_tone": observations[-1].tone if observations else None,
+            "latest_score": observations[-1].score if observations else None,
             "speeches": speeches,
         },
     )

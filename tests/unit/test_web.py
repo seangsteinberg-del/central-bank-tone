@@ -101,6 +101,36 @@ def test_speaker_detail_shows_tone_timeline_and_speech(web_client: TestClient) -
 
 
 @pytest.mark.web
+def test_dashboard_shows_corpus_stats_and_recent_speech(web_client: TestClient) -> None:
+    speaker_id = _register(web_client)
+    _ingest(web_client, speaker_id)
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "Speeches analyzed" in response.text  # the stat strip
+    assert "Recently analyzed" in response.text  # the recent-speeches section
+    assert "On the outlook" in response.text  # the ingested speech surfaced on the dashboard
+
+
+@pytest.mark.web
+def test_speaker_tone_chart_renders_as_svg(web_client: TestClient) -> None:
+    speaker_id = _register(web_client)
+    _ingest(web_client, speaker_id)
+    response = web_client.get(f"/speakers/{speaker_id}")
+    assert response.status_code == 200
+    assert "tone-chart" in response.text
+    assert "<svg" in response.text  # a real inline SVG chart, not CSS bars
+
+
+@pytest.mark.web
+def test_methodology_page_reports_measured_accuracy(web_client: TestClient) -> None:
+    response = web_client.get("/methodology")
+    assert response.status_code == 200
+    assert "Macro-F1" in response.text
+    assert "59.9%" in response.text  # the supervised classifier's measured accuracy
+    assert "/static/img/tone-vs-rates.png" in response.text  # the embedded research chart
+
+
+@pytest.mark.web
 def test_speaker_detail_unknown_returns_404_page(web_client: TestClient) -> None:
     response = web_client.get(f"/speakers/{_UNKNOWN}")
     assert response.status_code == 404
@@ -185,7 +215,10 @@ def test_admin_page_renders_forms(web_client: TestClient) -> None:
 
 
 @pytest.mark.web
-@pytest.mark.parametrize("asset", ["/static/app.css", "/static/vendor/htmx.min.js"])
+@pytest.mark.parametrize(
+    "asset",
+    ["/static/app.css", "/static/vendor/htmx.min.js", "/static/img/tone-vs-rates.png"],
+)
 def test_static_assets_are_served(web_client: TestClient, asset: str) -> None:
     response = web_client.get(asset)
     assert response.status_code == 200

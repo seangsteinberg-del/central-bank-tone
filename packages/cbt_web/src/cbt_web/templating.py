@@ -43,6 +43,20 @@ def _format_date(value: datetime) -> str:
     return value.date().isoformat()
 
 
+def _year(value: datetime) -> str:
+    """Format a datetime as its four-digit year."""
+    return f"{value.year}"
+
+
+def _score_chip(score: float) -> str:
+    """Return the CSS modifier for a score chip: positive (hawkish), negative (dovish), or zero."""
+    if score > 0.02:
+        return "pos"
+    if score < -0.02:
+        return "neg"
+    return "zero"
+
+
 def build_templates() -> Jinja2Templates:
     """Build the Jinja2 templates object with the UI's presentation filters registered.
 
@@ -53,6 +67,8 @@ def build_templates() -> Jinja2Templates:
     instance.env.filters["tone_class"] = _tone_class
     instance.env.filters["tone_label"] = _tone_label
     instance.env.filters["format_date"] = _format_date
+    instance.env.filters["year"] = _year
+    instance.env.filters["score_chip"] = _score_chip
     return instance
 
 

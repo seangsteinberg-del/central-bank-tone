@@ -9,9 +9,10 @@
 </head>
 <body>
   <header class="site-header">
-    <a class="brand" href="/">Central Bank Tone</a>
+    <a class="brand" href="/"><span class="brand-mark"></span> Central Bank Tone</a>
     <nav class="site-nav">
-      <a href="/">Speakers</a>
+      <a href="/">Dashboard</a>
+      <a href="/methodology">Methodology</a>
       <a href="/admin">Add data</a>
     </nav>
   </header>
@@ -19,8 +20,10 @@
     {% block content %}{% endblock %}
   </main>
   <footer class="site-footer">
-    Tone is model-generated and cross-checked against a deterministic lexicon. Answers are
-    grounded in retrieved speech excerpts and abstain when no source is found.
+    Tone is scored by a supervised classifier and a Gemini LLM judge, cross-checked against a
+    deterministic lexicon; a large disagreement is flagged for review. Answers are grounded in
+    retrieved speech excerpts and abstain when no source is relevant. See
+    <a href="/methodology">Methodology</a> for the measured accuracy.
   </footer>
 </body>
 </html>

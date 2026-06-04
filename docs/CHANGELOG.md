@@ -97,6 +97,13 @@ All notable changes to this project are documented in this file. The format foll
   (`make demo`, `make eval`, `make gate`).
 
 ### Changed
+- Web UI overhaul: the landing page is now a dashboard (thesis hero with the headline finding and a
+  prominent corpus ask box, a corpus-stats strip, hawkish/dovish leaderboards by latest tone, and
+  recently-analyzed speeches); a new `/methodology` page surfaces the measured accuracy
+  (classifier 59.9% vs lexicon 51.8%, McNemar p, bootstrap CI) and embeds the confusion-matrix and
+  tone-vs-rates charts; the speaker page renders a real inline-SVG tone-over-time chart (trend line,
+  per-point stems, hover detail) in place of CSS bars; and the stylesheet was reworked into a
+  cohesive research-terminal design.
 - Replaced the interim `AnalysisService` (raw-text analysis) with `IngestionService`, which
   ingests a full speech with metadata. Unreleased, so no external consumers are affected.
 - The deterministic lexicon now uses longest-match phrase counting and a negation window, with a

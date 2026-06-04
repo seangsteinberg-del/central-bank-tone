@@ -1,19 +1,22 @@
 {% extends "base.html" %}
 {% block title %}{{ speaker.name }} - Central Bank Tone{% endblock %}
 {% block content %}
-<a class="back" href="/">&larr; All speakers</a>
+<a class="back" href="/">&larr; Dashboard</a>
 
 <header class="speaker-header">
   <div>
     <h1>{{ speaker.name }}</h1>
-    <p class="speaker-meta">{{ speaker.central_bank.value | replace("_", " ") | title }} &middot; {{ speaker.role }}</p>
+    <p class="bank">{{ speaker.central_bank.value | replace("_", " ") | title }} &middot; {{ speaker.role }}</p>
   </div>
   {% if latest_tone %}
-  <span class="tone-badge {{ latest_tone | tone_class }}">{{ latest_tone | tone_label }}</span>
+  <div style="text-align:right">
+    <span class="tone-badge {{ latest_tone | tone_class }}">{{ latest_tone | tone_label }}</span>
+    <div class="muted num" style="font-size:.82rem;margin-top:4px">latest {{ "%+.2f" | format(latest_score) }}</div>
+  </div>
   {% endif %}
 </header>
 
-<section class="ask-panel">
+<section class="panel">
   <h2>Ask about {{ speaker.name }}</h2>
   <form class="ask-form" hx-post="/ui/speakers/{{ speaker.id }}/ask" hx-target="#speaker-answer" hx-disabled-elt="find button">
     <input type="text" name="question" maxlength="1000" required
@@ -24,49 +27,64 @@
   <div id="speaker-answer" class="answer-slot" aria-live="polite"></div>
 </section>
 
-<section class="timeline-section">
-  <h2>Tone over time</h2>
-  {% if timeline %}
-  <div class="timeline">
-    <div class="timeline-axis">
-      <span class="axis-label dovish">Dovish</span>
-      <span class="axis-mid">Neutral</span>
-      <span class="axis-label hawkish">Hawkish</span>
-    </div>
-    {% for point in timeline %}
-    <div class="timeline-row">
-      <span class="timeline-date">{{ point.observed_at | format_date }}</span>
-      <span class="bar-track">
-        <span class="bar-zero"></span>
-        <span class="bar {{ point.tone | tone_class }}" style="left: {{ point.left }}%; width: {{ point.width }}%;"></span>
-      </span>
-      <span class="bar-score">{{ "%+.2f" | format(point.score) }}</span>
-    </div>
+<div class="section-title"><h2>Tone over time</h2>
+  {% if chart %}<span class="muted num" style="font-size:.82rem">{{ observation_count }} observations</span>{% endif %}
+</div>
+{% if chart %}
+<section class="panel">
+  <svg class="tone-chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}"
+       preserveAspectRatio="xMidYMid meet" role="img"
+       aria-label="Tone of {{ speaker.name }} over time, from dovish to hawkish">
+    <line class="grid-line" x1="{{ chart.pad_l }}" y1="{{ chart.plot_top }}" x2="{{ chart.width - chart.pad_r }}" y2="{{ chart.plot_top }}"/>
+    <line class="grid-line" x1="{{ chart.pad_l }}" y1="{{ chart.plot_bottom }}" x2="{{ chart.width - chart.pad_r }}" y2="{{ chart.plot_bottom }}"/>
+    <line class="zero-line" x1="{{ chart.pad_l }}" y1="{{ chart.mid_y }}" x2="{{ chart.width - chart.pad_r }}" y2="{{ chart.mid_y }}"/>
+    {% for p in chart.points %}
+    <line class="stem {{ p.tone | tone_class }}" x1="{{ p.x }}" y1="{{ p.zero_y }}" x2="{{ p.x }}" y2="{{ p.y }}"/>
     {% endfor %}
+    {% if chart.points | length > 1 %}
+    <polyline class="tone-line" points="{{ chart.polyline }}"/>
+    {% endif %}
+    {% for p in chart.points %}
+    <circle class="dot {{ p.tone | tone_class }}" cx="{{ p.x }}" cy="{{ p.y }}" r="4">
+      <title>{{ p.label }}: {{ "%+.2f" | format(p.score) }} ({{ p.tone | tone_label }})</title>
+    </circle>
+    {% endfor %}
+    {% for p in chart.points if p.show_label %}
+    <text class="axis-label" x="{{ p.x }}" y="{{ chart.height - 6 }}" text-anchor="middle">{{ p.label }}</text>
+    {% endfor %}
+    <text class="axis-label" x="{{ chart.width - chart.pad_r }}" y="{{ chart.plot_top - 5 }}" text-anchor="end">+1 hawkish</text>
+    <text class="axis-label" x="{{ chart.width - chart.pad_r }}" y="{{ chart.plot_bottom + 13 }}" text-anchor="end">-1 dovish</text>
+  </svg>
+  <div class="chart-legend">
+    <span><span class="swatch" style="background:var(--hawkish)"></span>hawkish</span>
+    <span><span class="swatch" style="background:var(--dovish)"></span>dovish</span>
+    <span><span class="swatch" style="background:var(--neutral)"></span>neutral</span>
   </div>
-  {% else %}
-  <p class="muted">No tone observations yet. <a href="/admin">Add a speech</a> to populate the timeline.</p>
-  {% endif %}
 </section>
+{% else %}
+<p class="muted">No tone observations yet. <a href="/admin">Add a speech</a> to populate the timeline.</p>
+{% endif %}
 
-<section class="speeches-section">
-  <h2>Analyzed speeches</h2>
-  {% if speeches %}
-  <ul class="speech-list">
-    {% for speech in speeches %}
-    <li class="speech-card">
-      <div class="speech-head">
-        <a class="speech-title" href="{{ speech.url }}" target="_blank" rel="noreferrer noopener">{{ speech.title }}</a>
-        <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
-        {% if speech.needs_review %}<span class="review-badge" title="The model and the lexicon disagreed on this speech">model/lexicon disagree</span>{% endif %}
-      </div>
-      <p class="speech-meta">{{ speech.delivered_at | format_date }} &middot; model {{ "%+.2f" | format(speech.score) }} &middot; lexicon {{ "%+.2f" | format(speech.lexicon_score) }}</p>
-      <p class="speech-summary">{{ speech.summary }}</p>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="muted">No speeches ingested yet.</p>
-  {% endif %}
-</section>
+<div class="section-title"><h2>Analyzed speeches</h2></div>
+{% if speeches %}
+<ul class="speech-list">
+  {% for speech in speeches %}
+  <li class="speech-card">
+    <div class="speech-head">
+      <a class="speech-title" href="{{ speech.url }}" target="_blank" rel="noreferrer noopener">{{ speech.title }}</a>
+      <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
+      {% if speech.needs_review %}<span class="review-badge" title="The model and the lexicon disagreed on this speech">model/lexicon disagree</span>{% endif %}
+    </div>
+    <p class="speech-meta">
+      <span class="kv">{{ speech.delivered_at | format_date }}</span>
+      <span class="kv">model <b>{{ "%+.2f" | format(speech.score) }}</b></span>
+      <span class="kv">lexicon <b>{{ "%+.2f" | format(speech.lexicon_score) }}</b></span>
+    </p>
+    <p class="speech-summary">{{ speech.summary }}</p>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted">No speeches ingested yet.</p>
+{% endif %}
 {% endblock %}

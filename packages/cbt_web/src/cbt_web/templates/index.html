@@ -1,19 +1,97 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="ask-panel">
-  <h1>Ask the corpus</h1>
-  <p class="muted">A natural-language question across every speaker we have analyzed.</p>
-  <form class="ask-form" hx-post="/ui/ask" hx-target="#corpus-answer" hx-disabled-elt="find button">
+<section class="hero">
+  <div class="eyebrow">Monetary policy communication, scored</div>
+  <h1>How hawkish or dovish is each central banker, over time?</h1>
+  <p>
+    Central bank speeches move markets. This platform reads them, scores their tone per speaker,
+    cross-checks a supervised model against a deterministic lexicon, and makes the whole corpus
+    queryable in plain English. The tone signal is measured against labeled data, not asserted.
+  </p>
+  <div class="hero-finding">
+    Supervised classifier <strong>59.9%</strong> vs lexicon <strong>51.8%</strong> on the FOMC
+    benchmark &middot; <a href="/methodology" style="color:#cdd9f1;text-decoration:underline">see how it is measured</a>
+  </div>
+  <form class="ask-form" hx-post="/ui/ask" hx-target="#corpus-answer" hx-disabled-elt="find button"
+        aria-label="Ask the corpus a natural-language question">
     <input type="text" name="question" maxlength="1000" required
-           placeholder="e.g. Which speakers sound most hawkish about inflation?"
-           aria-label="Ask a question about the whole corpus">
+           placeholder="Ask the corpus: e.g. Which speakers sound most hawkish about inflation?"
+           aria-label="Ask the corpus">
     <button type="submit">Ask</button>
   </form>
   <div id="corpus-answer" class="answer-slot" aria-live="polite"></div>
 </section>
 
+<section class="stat-grid">
+  <div class="stat"><div class="value num">{{ overview.speakers }}</div><div class="label">Speakers tracked</div></div>
+  <div class="stat"><div class="value num">{{ overview.speeches }}</div><div class="label">Speeches analyzed</div></div>
+  <div class="stat"><div class="value num">{{ overview.observations }}</div><div class="label">Tone observations</div></div>
+  <div class="stat flag"><div class="value num">{{ overview.flagged }}</div><div class="label">Flagged for review</div></div>
+</section>
+
+{% if overview.hawkish or overview.dovish %}
+<div class="grid-2">
+  <section class="panel">
+    <h2>Leaning hawkish</h2>
+    <p class="muted" style="margin-top:-4px;font-size:.85rem">By each speaker's most recent tone score.</p>
+    {% if overview.hawkish %}
+    <ol class="leaderboard">
+      {% for row in overview.hawkish %}
+      <li>
+        <span class="rank">{{ loop.index }}</span>
+        <span class="who">
+          <a href="/speakers/{{ row.speaker.id }}">{{ row.speaker.name }}</a>
+          <span class="sub">{{ row.speaker.central_bank.value | replace("_", " ") | title }} &middot; {{ row.count }} obs</span>
+        </span>
+        <span class="score-chip {{ row.score | score_chip }}">{{ "%+.2f" | format(row.score) }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}<p class="muted empty">No hawkish-leaning speakers yet.</p>{% endif %}
+  </section>
+  <section class="panel">
+    <h2>Leaning dovish</h2>
+    <p class="muted" style="margin-top:-4px;font-size:.85rem">By each speaker's most recent tone score.</p>
+    {% if overview.dovish %}
+    <ol class="leaderboard">
+      {% for row in overview.dovish %}
+      <li>
+        <span class="rank">{{ loop.index }}</span>
+        <span class="who">
+          <a href="/speakers/{{ row.speaker.id }}">{{ row.speaker.name }}</a>
+          <span class="sub">{{ row.speaker.central_bank.value | replace("_", " ") | title }} &middot; {{ row.count }} obs</span>
+        </span>
+        <span class="score-chip {{ row.score | score_chip }}">{{ "%+.2f" | format(row.score) }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}<p class="muted empty">No dovish-leaning speakers yet.</p>{% endif %}
+  </section>
+</div>
+{% endif %}
+
+{% if overview.recent %}
+<div class="section-title"><h2>Recently analyzed</h2></div>
+<ul class="speech-list">
+  {% for speaker, speech in overview.recent %}
+  <li class="speech-card">
+    <div class="speech-head">
+      <a class="speech-title" href="/speakers/{{ speaker.id }}">{{ speech.title }}</a>
+      <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
+    </div>
+    <p class="speech-meta">
+      <span class="kv">{{ speaker.name }}</span>
+      <span class="kv">{{ speech.delivered_at | format_date }}</span>
+      <span class="kv">model <b>{{ "%+.2f" | format(speech.score) }}</b></span>
+      {% if speech.needs_review %}<span class="review-badge">model/lexicon disagree</span>{% endif %}
+    </p>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
 <section class="directory">
-  <h2>Speakers</h2>
+  <div class="section-title"><h2>All speakers</h2></div>
   <input class="search" type="search" name="q"
          placeholder="Search by name or central bank"
          hx-get="/ui/speakers" hx-target="#speaker-list"
