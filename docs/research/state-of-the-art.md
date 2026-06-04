@@ -54,8 +54,11 @@ production analogue of the zero-shot-LLM tier; a fine-tuned PLM would be the way
 2. ~~**Add a calibration metric** (ECE/MCE) to `scripts/eval_tone.py`.~~ **Done.** The eval reports
    ECE 0.142, MCE 0.276, a multiclass Brier score, and a reliability diagram; the classifier is
    under-confident on this benchmark (`docs/research/tone-evaluation.md`).
-3. **Cross-dataset evaluation**: score the classifier on op-fed (MIT) as an out-of-distribution check, so the
-   number is not benchmark-specific.
+3. ~~**Cross-dataset evaluation**: score the classifier on op-fed (MIT) as an out-of-distribution
+   check.~~ **Done** (`scripts/eval_cross_dataset.py`): zero-shot transfer to op-fed's StanceNLI
+   labels drops the classifier to 32.1% / macro-F1 0.318, below that corpus's dovish-skewed majority
+   baseline. An honest negative result: the signal is largely speech-corpus-specific
+   (`docs/research/cross-dataset-eval.md`).
 4. **A fine-tuned PLM tier** (e.g. finBERT, Apache-2.0, behind the existing `LlmClient` boundary) to close the
    gap from ~0.58 toward the ~0.72 transformer ceiling, if a heavier runtime dependency is acceptable.
 5. **Enrich the lexicon** from the MIT FOMCAnalysis word lists (curated, not copied wholesale).

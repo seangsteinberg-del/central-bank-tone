@@ -89,6 +89,10 @@
   <h2>Honest limitations</h2>
   <ul>
     <li>The supervised classifier is a linear bag-of-words model; fine-tuned transformers score higher.</li>
+    <li>It does not transfer well out of distribution: applied unchanged to op-fed (FOMC meeting
+      transcripts, a different annotation method), it drops to 32% accuracy / 0.318 macro-F1, below
+      that corpus's majority baseline. Much of its signal is specific to the speech corpus it was
+      trained on (<code>docs/research/cross-dataset-eval.md</code>).</li>
     <li>The economic link is annual and descriptive over a small sample, not a trading signal.</li>
     <li>In the keyless demo, tone is the offline classifier and answers are extractive (clearly
       labeled); the production path uses the Gemini judge and generative answers.</li>

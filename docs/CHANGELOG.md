@@ -87,6 +87,13 @@ All notable changes to this project are documented in this file. The format foll
   and attributed to the sitting Fed Chair, so the whole UI - per-Chair tone trajectories, the
   cross-check markers, and natural-language search - runs populated with no Gemini key and no
   Postgres. Adds `IngestionService.get_speech`.
+- Cross-dataset (out-of-distribution) evaluation: `scripts/eval_cross_dataset.py` applies the
+  FOMC-trained classifier and the lexicon unchanged to op-fed (`kakeith/op-fed`, MIT; FOMC meeting
+  transcripts labeled with a StanceNLI scheme), mapping entailment/contradiction/neutral onto
+  hawkish/dovish/neutral via the documented "We should tighten monetary policy" hypothesis. An
+  honest negative result: the classifier drops to 32.1% accuracy / 0.318 macro-F1 (below that
+  corpus's dovish-skewed majority baseline), so much of its signal is speech-corpus-specific. Report
+  and confusion matrix under `docs/research/`; surfaced in the methodology page's limitations.
 - Classifier calibration in the evaluation: `scripts/eval_tone.py` now reports the supervised
   classifier's expected and maximum calibration error (ECE 0.142, MCE 0.276), a multiclass Brier
   score, and the direction of the miscalibration, with a reliability diagram and confidence

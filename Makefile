@@ -1,10 +1,11 @@
 # Developer and demo shortcuts. See README.md for the manual (Windows/PowerShell) equivalents.
-.PHONY: help sync gate test lint db-up db-down migrate eval train chart serve demo demo-lite
+.PHONY: help sync gate test lint db-up db-down migrate eval eval-cross train chart serve demo demo-lite
 
 help:
 	@echo "sync       - install the workspace (uv sync)"
 	@echo "gate       - run the full quality gate (ruff, mypy, imports, tests)"
 	@echo "eval       - score classifier vs lexicon vs the FOMC benchmark, plot tone vs rates"
+	@echo "eval-cross - out-of-distribution check: score the classifier on op-fed (MIT)"
 	@echo "train      - retrain the supervised tone-model artifact"
 	@echo "demo-lite  - serve a populated demo with NO key and NO Docker (SQLite + offline model)"
 	@echo "db-up      - start Postgres + pgvector (docker compose)"
@@ -28,6 +29,9 @@ test:
 eval:
 	uv run python scripts/eval_tone.py
 	uv run python scripts/tone_trajectory.py
+
+eval-cross:
+	uv run python scripts/eval_cross_dataset.py
 
 train:
 	uv run python scripts/train_tone_model.py
