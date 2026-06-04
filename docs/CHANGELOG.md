@@ -47,6 +47,12 @@ All notable changes to this project are documented in this file. The format foll
   that scrapes the BIS speeches index (one source covering all eight institutions, `httpx` +
   `selectolax`), and a `run_ingestion` runner that resolves the speaker, ingests, and indexes
   each speech. `SpeakerService.ensure_speaker` finds or creates a speaker by name and institution.
+- BIS bulk-archive backfill source (`BisBulkSpeechSource`, ADR 0016): reads speeches from a
+  downloaded BIS bulk ZIP (one CSV, no key) via an injected bytes provider, mapping each row onto
+  the schema spine with the shared institution/role parsers (now in `sources/base.py`). Configurable
+  column names; rows from untracked institutions or missing a required field are skipped, a
+  structurally broken archive raises `BisArchiveError`. The worker entry point gains
+  `--bulk <path> [--limit N]` for backfill; the RSS scraper remains the incremental path.
 - API endpoints (`cbt_api`): `POST/GET /speakers/{id}/speeches` to ingest+index and list a
   speaker's analyzed speeches, and `POST /speakers/{id}/ask` to answer a question about a speaker
   with citations. `IngestionService.list_speeches` reads a speaker's speeches.

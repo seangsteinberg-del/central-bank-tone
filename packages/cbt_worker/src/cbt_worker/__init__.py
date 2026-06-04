@@ -7,6 +7,19 @@ and indexing services. Depends on ``cbt_core`` only.
 from __future__ import annotations
 
 from cbt_worker.runner import run_ingestion
-from cbt_worker.sources import BisSpeechSource, ScrapedSpeech, SpeechSource
+from cbt_worker.sources import (
+    BisArchiveError,
+    BisBulkSpeechSource,
+    BisSpeechSource,
+    ScrapedSpeech,
+    SpeechSource,
+)
 
-__all__ = ["BisSpeechSource", "ScrapedSpeech", "SpeechSource", "run_ingestion"]
+__all__ = [
+    "BisArchiveError",
+    "BisBulkSpeechSource",
+    "BisSpeechSource",
+    "ScrapedSpeech",
+    "SpeechSource",
+    "run_ingestion",
+]

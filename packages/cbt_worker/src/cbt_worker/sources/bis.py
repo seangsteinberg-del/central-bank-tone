@@ -17,65 +17,26 @@ from institutions outside the schema spine are skipped.
 from __future__ import annotations
 
 import json
-import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 
 from selectolax.parser import HTMLParser
 
-from cbt_core import CentralBank, get_logger
-from cbt_worker.sources.base import Fetcher, ScrapedSpeech
+from cbt_core import get_logger
+from cbt_worker.sources.base import (
+    Fetcher,
+    ScrapedSpeech,
+    affiliation_from,
+    central_bank_from,
+    role_from,
+)
 
 _logger = get_logger(__name__)
 
 _BASE_URL = "https://www.bis.org"
 _LISTING_URL = "https://www.bis.org/doclist/cbspeeches.rss"
 _RDF_ABOUT = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about"
-
-# Map BIS institution names onto the schema spine. Only tracked banks are kept.
-_INSTITUTION_TO_BANK: tuple[tuple[str, CentralBank], ...] = (
-    ("federal reserve", CentralBank.FEDERAL_RESERVE),
-    ("european central bank", CentralBank.ECB),
-    ("bank of england", CentralBank.BANK_OF_ENGLAND),
-    ("bank of japan", CentralBank.BANK_OF_JAPAN),
-    ("bank of canada", CentralBank.BANK_OF_CANADA),
-    ("reserve bank of australia", CentralBank.RESERVE_BANK_OF_AUSTRALIA),
-    ("swiss national bank", CentralBank.SWISS_NATIONAL_BANK),
-    ("people's bank of china", CentralBank.PEOPLES_BANK_OF_CHINA),
-    ("peoples bank of china", CentralBank.PEOPLES_BANK_OF_CHINA),
-)
-
-# BIS descriptions read "<type> by <Title> <Name>, <Role> of (the) <Institution>, at <venue>...".
-# Capture the role between the first comma and " of "/" at ", and the speaker's own institution
-# from the affiliation clause (not from the venue, which could also name a tracked bank).
-_ROLE_RE = re.compile(r",\s*([A-Z][A-Za-z' .-]{1,80}?)\s+(?:of|at)\b")
-_AFFILIATION_RE = re.compile(r",\s*[A-Z][^,]*?\bof\b\s+(?:the\s+)?(.+?)\s*,")
-
-
-def _central_bank_from(text: str) -> CentralBank | None:
-    """Map an institution string onto the schema spine, or ``None`` if untracked."""
-    lowered = text.lower()
-    for needle, bank in _INSTITUTION_TO_BANK:
-        if needle in lowered:
-            return bank
-    return None
-
-
-def _role_from(description: str) -> str:
-    """Best-effort role extracted from the RSS description, or a generic fallback."""
-    match = _ROLE_RE.search(description)
-    return match.group(1).strip() if match is not None else "Central banker"
-
-
-def _affiliation_from(description: str) -> str:
-    """The speaker's own institution from the affiliation clause, or the full description.
-
-    Reading the affiliation rather than scanning the whole description avoids misattributing a
-    speaker to a tracked bank merely because they spoke at that bank's venue.
-    """
-    match = _AFFILIATION_RE.search(description)
-    return match.group(1).strip() if match is not None else description
 
 
 def _parse_date(text: str) -> datetime:
@@ -131,7 +92,7 @@ class BisSpeechSource:
         for entry in entries:
             if len(results) >= limit:
                 break
-            bank = _central_bank_from(entry.institution)
+            bank = central_bank_from(entry.institution)
             if bank is None:
                 _logger.info("bis_speech_skipped_untracked", institution=entry.institution)
                 continue
@@ -176,8 +137,8 @@ class BisSpeechSource:
             entries.append(
                 _ListingEntry(
                     speaker=speaker,
-                    role=_role_from(description),
-                    institution=_affiliation_from(description),
+                    role=role_from(description),
+                    institution=affiliation_from(description),
                     title=clean_title or title,
                     url=self._absolute(url),
                     delivered_at=_parse_date(date_text),

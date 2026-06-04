@@ -48,8 +48,9 @@ production analogue of the zero-shot-LLM tier; a fine-tuned PLM would be the way
 
 ## Prioritized next steps (impact to effort)
 
-1. **Switch `cbt_worker` to the BIS bulk ZIP** as the backfill source (no fragile HTML scraping; one CSV,
-   noncommercial-clean for research). Keep the RSS path for incremental updates. (Highest impact.)
+1. ~~**Switch `cbt_worker` to the BIS bulk ZIP** as the backfill source.~~ **Done** (ADR 0016):
+   `BisBulkSpeechSource` reads the bulk ZIP's CSV via an injected bytes provider; the RSS path
+   remains for incremental updates. Run `python -m cbt_worker.app --bulk speeches.zip`.
 2. ~~**Add a calibration metric** (ECE/MCE) to `scripts/eval_tone.py`.~~ **Done.** The eval reports
    ECE 0.142, MCE 0.276, a multiclass Brier score, and a reliability diagram; the classifier is
    under-confident on this benchmark (`docs/research/tone-evaluation.md`).

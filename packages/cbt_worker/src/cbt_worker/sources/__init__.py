@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from cbt_worker.sources.base import Fetcher, ScrapedSpeech, SpeechSource
+from cbt_worker.sources.base import BytesProvider, Fetcher, ScrapedSpeech, SpeechSource
 from cbt_worker.sources.bis import BisSpeechSource
+from cbt_worker.sources.bis_bulk import BisArchiveError, BisBulkSpeechSource
 
-__all__ = ["BisSpeechSource", "Fetcher", "ScrapedSpeech", "SpeechSource"]
+__all__ = [
+    "BisArchiveError",
+    "BisBulkSpeechSource",
+    "BisSpeechSource",
+    "BytesProvider",
+    "Fetcher",
+    "ScrapedSpeech",
+    "SpeechSource",
+]
