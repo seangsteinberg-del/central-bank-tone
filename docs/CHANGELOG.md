@@ -97,6 +97,35 @@ All notable changes to this project are documented in this file. The format foll
 ### Fixed
 - BIS RSS source: a transient HTTP error on one speech's detail fetch no longer aborts the whole
   feed; each entry is scraped in isolation (the regression that left the corpus short of today).
+- Red test suite on `main`: the committee read-model tests used a local `_ScriptedLlm` double that
+  had fallen behind the `LlmClient` protocol (it lacked `classify_sentences`, added in ADR 0021),
+  so `StanceService.assess` raised `AttributeError` and five tests failed deterministically under
+  the CI command. The scripted double now lives in `tests/_stubs.py` as `ScriptedLlmClient` with the
+  full surface, and `LlmClient` is `@runtime_checkable` with a conformance test asserting every full
+  double satisfies the protocol, so a future protocol method that a double misses fails one focused
+  test instead of leaking to a runtime error.
+- ORM/migration schema divergence (one schema spine, CLAUDE.md section 2): the mapped enum columns
+  stored Python member *names* (`FEDERAL_RESERVE`) under `create_all` while the alembic migrations
+  define the lowercase member *values* (`federal_reserve`), so a database built by `create_demo_schema`
+  (the SQLite demo and the no-pgvector live DB, ADR 0018) diverged from a migrated one and the ORM
+  could not round-trip a migrated PostgreSQL database. The enum columns now pin `values_callable` to
+  the member values, matching the migrations; a parity test pins the two build paths together. No
+  alembic migration is needed (the migrated schema is unchanged); a pre-existing `create_all`-built
+  PostgreSQL database from `run_live` would need its enum labels migrated to lowercase.
+- Correlation id on web service logs (CLAUDE.md section 7): the web adapter bound the request's
+  correlation id onto the log context but did not thread it into service calls, so each service
+  minted a fresh unrelated id and `merge_contextvars` (which uses `setdefault`) could not override
+  it; the service log lines, the primary debugging surface, were uncorrelated from the request. Core
+  services now resolve the correlation id from the adapter-bound context when one is not passed
+  explicitly (`resolve_correlation_id`), minting only when nothing is bound (a CLI or worker call).
+
+### Added (tests and internal)
+- Protocol-conformance test for `LlmClient` (runtime-checkable) over every full test double and the
+  offline client, plus a teeth check that a client missing a method is rejected.
+- Schema enum-label parity test: `create_all` persists the same lowercase labels as the migrations.
+- Regression tests for the eval-script statistics (accuracy, per-class precision/recall/F1,
+  macro-F1, confusion matrix, and the McNemar + bootstrap significance), pinned to hand-computed
+  fixtures and run against both eval scripts' copies so the published numbers cannot silently drift.
 
 - Repository scaffold: `uv` workspace with `cbt_core` (domain core) and `cbt_api` (FastAPI
   adapter), the binding standards in `CLAUDE.md`, the `.claude/` agent harness, and the
