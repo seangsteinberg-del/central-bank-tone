@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -111,6 +112,12 @@ class SpeechRow(Base):
     lexicon_score: Mapped[float] = mapped_column(Float, nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Structured-pipeline fields (ADR 0021), nullable because speeches scored before it existed do
+    # not have them. rate_path is the forward-looking net-hawkishness, uncertainty the share of
+    # cross-checks disagreeing with the headline, aspect_scores the per-aspect net (a JSON map).
+    rate_path: Mapped[float | None] = mapped_column(Float, nullable=True)
+    uncertainty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    aspect_scores: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
     model_id: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")
 
     __table_args__ = (
@@ -118,6 +125,14 @@ class SpeechRow(Base):
         CheckConstraint("score >= -1.0 AND score <= 1.0", name="score_in_range"),
         CheckConstraint(
             "lexicon_score >= -1.0 AND lexicon_score <= 1.0", name="lexicon_score_in_range"
+        ),
+        CheckConstraint(
+            "rate_path IS NULL OR (rate_path >= -1.0 AND rate_path <= 1.0)",
+            name="rate_path_in_range",
+        ),
+        CheckConstraint(
+            "uncertainty IS NULL OR (uncertainty >= 0.0 AND uncertainty <= 1.0)",
+            name="uncertainty_in_range",
         ),
         CheckConstraint("length(source_sha256) = 64", name="sha256_length"),
     )

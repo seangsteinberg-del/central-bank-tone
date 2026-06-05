@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from cbt_core.analysis.lexicon import HawkishDovishLexicon, disagrees
+from cbt_core.analysis.lexicon import HawkishDovishLexicon
 from cbt_core.domain.models import ToneObservation
 from cbt_core.domain.speech import Speech
 from cbt_core.llm.client import LlmClient
@@ -26,6 +26,7 @@ from cbt_core.persistence.repositories import (
     ToneObservationRepository,
 )
 from cbt_core.services._support import IdFactory, default_id_factory
+from cbt_core.services.stance_service import StanceService
 
 _logger = get_logger(__name__)
 
@@ -39,6 +40,7 @@ class IngestionService:
         llm_client: LlmClient,
         *,
         lexicon: HawkishDovishLexicon | None = None,
+        stance_service: StanceService | None = None,
         id_factory: IdFactory = default_id_factory,
         model_id: str = "unknown",
     ) -> None:
@@ -48,6 +50,8 @@ class IngestionService:
             session_factory: Factory for sessions. The service owns the transaction.
             llm_client: The LLM boundary used to summarize and score the speech.
             lexicon: The deterministic lexicon baseline; a default one is used if not supplied.
+            stance_service: The structured stance pipeline (ADR 0021); one wired to the same LLM
+                and lexicon is built if not supplied.
             id_factory: Source of new identifiers. Inject a deterministic one in tests.
             model_id: The configured model identifier, recorded on each speech so the tone
                 series stays comparable as the model changes (the adapter injects it from
@@ -56,6 +60,11 @@ class IngestionService:
         self._session_factory = session_factory
         self._llm = llm_client
         self._lexicon = lexicon if lexicon is not None else HawkishDovishLexicon()
+        self._stance = (
+            stance_service
+            if stance_service is not None
+            else StanceService(llm_client, lexicon=self._lexicon)
+        )
         self._id_factory = id_factory
         self._model_id = model_id
 
@@ -109,18 +118,30 @@ class IngestionService:
             log.info("speech_already_ingested", speech_id=str(existing.id))
             return existing
 
-        # Phase 2: analyze (no transaction held across the model call). The deterministic
-        # lexicon is a cross-check on the model: a large disagreement is flagged, not averaged
-        # away (ADR 0008), and surfaced on the speech and its tone observation.
-        lexicon_result = self._lexicon.score(text)
+        # Phase 2: analyze (no transaction held across the model call). The model's holistic
+        # judgement is the headline; the structured pipeline (ADR 0021) adds the rate-path and
+        # per-aspect decomposition and cross-checks the headline by direction against the structured
+        # net, the classifier (where it applies), and the lexicon. A majority disagreement is
+        # flagged, not averaged away (ADR 0008), and surfaced on the speech and its observation.
         analysis = self._llm.analyze_tone(text)
-        needs_review = disagrees(analysis.score, lexicon_result)
+        assessment = self._stance.assess(
+            text,
+            headline_score=analysis.score,
+            headline_tone=analysis.tone,
+            central_bank=speaker.central_bank,
+        )
+        needs_review = assessment.needs_review
+        aspect_scores = {
+            aspect.value: net for aspect, net in assessment.aggregate.by_aspect.items()
+        }
         if needs_review:
             log.warning(
                 "tone_cross_check_disagreement",
-                model_score=analysis.score,
-                lexicon_score=lexicon_result.score,
-                model_tone=analysis.tone.value,
+                headline_score=analysis.score,
+                structured_net=assessment.structured_net,
+                classifier_net=assessment.classifier_net,
+                lexicon_score=assessment.lexicon_score,
+                uncertainty=assessment.uncertainty,
             )
         speech = Speech(
             id=self._id_factory(),
@@ -135,9 +156,12 @@ class IngestionService:
             summary=analysis.summary,
             tone=analysis.tone,
             score=analysis.score,
-            lexicon_score=lexicon_result.score,
+            lexicon_score=assessment.lexicon_score,
             rationale=analysis.rationale,
             needs_review=needs_review,
+            rate_path=assessment.rate_path,
+            uncertainty=assessment.uncertainty,
+            aspect_scores=aspect_scores,
             model_id=self._model_id,
         )
         observation = ToneObservation(
@@ -147,7 +171,7 @@ class IngestionService:
             tone=analysis.tone,
             score=analysis.score,
             source_sha256=source_sha256,
-            lexicon_score=lexicon_result.score,
+            lexicon_score=assessment.lexicon_score,
             needs_review=needs_review,
         )
 
@@ -162,7 +186,9 @@ class IngestionService:
             speech_id=str(speech.id),
             tone=analysis.tone.value,
             score=analysis.score,
-            lexicon_score=lexicon_result.score,
+            rate_path=assessment.rate_path,
+            uncertainty=assessment.uncertainty,
+            lexicon_score=assessment.lexicon_score,
             needs_review=needs_review,
             summary_chars=len(analysis.summary),
             source_bytes=len(encoded),

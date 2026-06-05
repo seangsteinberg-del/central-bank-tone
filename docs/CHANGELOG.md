@@ -7,6 +7,13 @@ All notable changes to this project are documented in this file. The format foll
 ## [Unreleased]
 
 ### Added
+- Ingestion runs the structured stance pipeline on every speech and persists its decomposition
+  (ADR 0021): `speech.rate_path` (forward-looking policy intent), `speech.uncertainty` (the share of
+  cross-checks that disagree with the headline's direction), and `speech.aspect_scores` (per-aspect
+  net-hawkishness, a JSON map). Migration 0006 adds the three nullable columns with range checks; a
+  speech scored before the pipeline existed keeps a null detail until it is re-scored. `needs_review`
+  now reflects the directional ensemble (the headline cross-checked against the structured net, the
+  Fed-only classifier, and the lexicon) rather than the lexicon-only check.
 - Production-signal validation against real rates (`scripts/eval_corpus_vs_rates.py`, ADR 0021): a
   reproducible, keyless test of the platform's own headline tone. It builds a monthly Federal Reserve
   tone index from the stored Gemini holistic scores and correlates it with FRED's effective fed funds

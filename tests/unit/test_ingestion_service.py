@@ -49,6 +49,22 @@ def test_ingest_persists_model_tone_and_lexicon_baseline(
 
 
 @pytest.mark.unit
+def test_ingest_persists_the_structured_pipeline_fields(
+    ingestion_service: IngestionService, speaker_service: SpeakerService
+) -> None:
+    # The structured pipeline (ADR 0021) runs on every ingest and persists its decomposition.
+    speaker_id = _register(speaker_service)
+    speech = _ingest(ingestion_service, speaker_id, text=_HAWKISH_TEXT)
+    assert speech.rate_path is not None
+    assert -1.0 <= speech.rate_path <= 1.0
+    assert speech.uncertainty is not None
+    assert 0.0 <= speech.uncertainty <= 1.0
+    assert speech.aspect_scores is not None
+    # The hawkish source is about inflation, so that aspect appears in the breakdown.
+    assert "inflation" in speech.aspect_scores
+
+
+@pytest.mark.unit
 def test_ingest_is_idempotent_by_source_hash(
     ingestion_service: IngestionService,
     speaker_service: SpeakerService,

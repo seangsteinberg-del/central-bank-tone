@@ -38,9 +38,18 @@ class Speech(BaseModel):
             hawkish).
         lexicon_score: The deterministic lexicon baseline tone in ``[-1.0, 1.0]``.
         rationale: The model's one-line justification for the tone.
-        needs_review: True when the model ``score`` and ``lexicon_score`` disagreed enough to
-            flag for review (ADR 0008): an opposite-sign disagreement or a large magnitude gap
-            when the lexicon found signal.
+        needs_review: True when the headline tone and the independent cross-checks disagreed
+            enough to flag for review (ADR 0008, ADR 0021): a majority of the cross-checks point
+            the opposite way to the headline.
+        rate_path: The forward-looking net-hawkishness (policy intent, separated from
+            backward-looking description) from the structured pipeline (ADR 0021), in
+            ``[-1.0, 1.0]``. ``None`` for a speech scored before the structured pipeline existed.
+        uncertainty: The share of applicable cross-checks that disagree with the headline's
+            direction (ADR 0021), in ``[0.0, 1.0]``. ``None`` when the structured pipeline has not
+            been run for this speech.
+        aspect_scores: The net-hawkishness within each policy aspect that appeared (inflation,
+            growth, employment, balance sheet, financial stability, guidance), keyed by the aspect
+            name. ``None`` when the structured pipeline has not been run for this speech.
         model_id: The model that produced the analysis (for example ``gemini-2.5-flash``),
             recorded so the tone series stays comparable as the model changes over time.
     """
@@ -62,6 +71,9 @@ class Speech(BaseModel):
     lexicon_score: float = Field(ge=-1.0, le=1.0)
     rationale: str = Field(min_length=1, max_length=2000)
     needs_review: bool = False
+    rate_path: float | None = Field(default=None, ge=-1.0, le=1.0)
+    uncertainty: float | None = Field(default=None, ge=0.0, le=1.0)
+    aspect_scores: dict[str, float] | None = None
     model_id: str = Field(default="unknown", min_length=1, max_length=100)
 
     @field_validator("delivered_at")
