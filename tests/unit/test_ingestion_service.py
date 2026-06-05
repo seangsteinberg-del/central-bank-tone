@@ -73,6 +73,19 @@ def test_ingest_persists_the_structured_pipeline_fields(
 
 
 @pytest.mark.unit
+def test_get_stance_and_stances_by_speech_expose_the_decomposition(
+    ingestion_service: IngestionService, speaker_service: SpeakerService
+) -> None:
+    speaker_id = _register(speaker_service)
+    speech = _ingest(ingestion_service, speaker_id)
+    stance = ingestion_service.get_stance(speech.id)
+    assert stance is not None
+    assert stance.speech_id == speech.id
+    assert ingestion_service.get_stance(UUID(int=12345)) is None  # an unscored speech
+    assert speech.id in ingestion_service.stances_by_speech()
+
+
+@pytest.mark.unit
 def test_speech_stance_repository_get_replace_and_list(
     ingestion_service: IngestionService,
     speaker_service: SpeakerService,
