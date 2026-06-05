@@ -17,10 +17,59 @@
   </div>
   <p>
     Each speech gets a tone label and a continuous score in <span class="num">[-1, +1]</span>.
-    The deterministic lexicon is a transparent cross-check on the model: when the model and the
-    lexicon disagree by a large margin, the speech is flagged <span class="review-badge">model/lexicon disagree</span>
+    The independent scorers are a transparent cross-check on the model: when a majority disagree
+    with the headline's direction, the speech is flagged <span class="review-badge">flagged for review</span>
     rather than the disagreement being averaged away.
   </p>
+</section>
+
+<section class="panel">
+  <h2>The production pipeline: structured, not a single call</h2>
+  <p class="muted" style="margin-top:-4px">
+    The state of the art (and our own benchmarking) is clear that a single whole-speech LLM call is
+    the weakest method. The production tone is built in steps instead.
+  </p>
+  <ol class="method-steps">
+    <li><strong>Headline</strong>: the Gemini holistic whole-speech score. It keeps the dynamic
+      range a macro reader needs to see moves and divergence, and it is the comparable index over time.</li>
+    <li><strong>Decompose</strong>: split into sentences, keep the policy-relevant ones, and classify
+      each as hawkish / dovish / neutral with an aspect and a forward/backward horizon. Aggregating
+      these gives a <strong>rate-path</strong> measure (forward-looking policy intent, separated from
+      backward-looking description) and a per-aspect breakdown (inflation, growth, employment,
+      balance sheet, and so on).</li>
+    <li><strong>Cross-check by direction</strong>: the structured sentence-level net, the supervised
+      classifier (only for the Fed, where it is measured to be valid), and the lexicon each vote on
+      the direction. The share that disagree with the headline is an explicit
+      <strong>uncertainty</strong> band; a majority dissent flags the speech for review. The
+      comparison is by direction, not magnitude, so the signals are never falsely flagged for being
+      on different scales.</li>
+  </ol>
+</section>
+
+<section class="panel">
+  <h2>Does the production signal lead Fed policy?</h2>
+  <p class="muted" style="margin-top:-4px">
+    The benchmark below measures the scorers on labeled FOMC sentences. This measures the platform's
+    <strong>own</strong> headline, on its real corpus, against rates: a monthly Federal Reserve tone
+    index from the stored scores vs FRED's fed funds rate and 2-year Treasury yield (2020-2026), each
+    with a bootstrap 95% CI.
+  </p>
+  <table class="method-table">
+    <thead>
+      <tr><th>vs</th><th class="num">same-month</th><th class="num">+3 months (lead)</th><th class="num">+6 months (lead)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>effective fed funds</td><td class="num win">+0.52</td><td class="num win">+0.51</td><td class="num win">+0.52</td></tr>
+      <tr><td>2-year Treasury</td><td class="num win">+0.42</td><td class="num win">+0.29</td><td class="num win">+0.27</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    Every interval excludes zero. The index does not just move with the rate cycle (same-month); it
+    <strong>leads</strong> it, and it leads the forward-looking 2-year yield (+0.29 at three months),
+    so the signal carries information about where policy goes next, not only where it has been. This
+    is correlation on the Fed alone, where free market ground truth exists, not out-of-sample PnL;
+    full numbers in <code>docs/research/corpus-tone-vs-rates.md</code>.
+  </div>
 </section>
 
 <section class="panel">
@@ -94,6 +143,9 @@
       that corpus's majority baseline. Much of its signal is specific to the speech corpus it was
       trained on (<code>docs/research/cross-dataset-eval.md</code>).</li>
     <li>The economic link is annual and descriptive over a small sample, not a trading signal.</li>
+    <li>The production-signal rate validation is the Federal Reserve only, where free market ground
+      truth exists; the other seven institutions are scored but their tone is not validated against
+      rates here. The link is correlation over a single monthly cycle, not out-of-sample PnL.</li>
     <li>In the keyless demo, tone is the offline classifier and answers are extractive (clearly
       labeled); the production path uses the Gemini judge and generative answers.</li>
   </ul>

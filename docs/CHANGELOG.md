@@ -240,6 +240,10 @@ All notable changes to this project are documented in this file. The format foll
   with exponential backoff, so a large fill is not derailed by the free tier's throttling.
 
 ### Changed
+- Methodology page: documents the structured production pipeline (ADR 0021) - headline, rate-path
+  decomposition, and directional cross-check uncertainty - and adds the production-signal rate
+  validation (the platform's own Fed tone index leads the fed funds rate and 2-year yield, every CI
+  excluding zero), alongside the existing FOMC-benchmark scorer accuracy.
 - Web UI overhaul: the landing page is now a dashboard (thesis hero with the headline finding and a
   prominent corpus ask box, a corpus-stats strip, hawkish/dovish leaderboards by latest tone, and
   recently-analyzed speeches); a new `/methodology` page surfaces the measured accuracy

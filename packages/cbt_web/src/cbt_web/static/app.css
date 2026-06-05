@@ -744,6 +744,9 @@ a.speech-title:hover { color: var(--accent); }
 .method-table td.num, .method-table th.num { text-align: right; font-family: var(--mono); }
 .method-table tr.best td { background: var(--accent-soft); color: var(--ink); }
 .method-table .win { color: var(--good); font-weight: 700; }
+.method-steps { margin: 4px 0 0; padding-left: 20px; }
+.method-steps li { margin: 8px 0; line-height: 1.55; }
+.method-steps strong { color: var(--ink); }
 .research-img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); margin-top: 8px; background: #fff; }
 .callout {
   background: var(--inset);
