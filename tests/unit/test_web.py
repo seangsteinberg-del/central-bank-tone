@@ -498,6 +498,19 @@ def test_speech_detail_shows_summary_and_committee_movement(web_client: TestClie
 
 
 @pytest.mark.web
+def test_speech_detail_shows_the_policy_decomposition(web_client: TestClient) -> None:
+    speaker_id = _register(web_client)
+    _ingest(web_client, speaker_id)
+    speech_id = _latest_speech_id(web_client, speaker_id)
+    response = web_client.get(f"/speeches/{speech_id}")
+    assert response.status_code == 200
+    # The structured pipeline (ADR 0021) decomposition is surfaced on the speech page.
+    assert "Policy decomposition" in response.text
+    assert "Rate-path intent" in response.text
+    assert "Cross-checks" in response.text
+
+
+@pytest.mark.web
 def test_speech_detail_draws_member_shift_with_a_prior_reading(web_client: TestClient) -> None:
     speaker_id = _register(web_client)
     _ingest(web_client, speaker_id)  # delivered 2026-01-15

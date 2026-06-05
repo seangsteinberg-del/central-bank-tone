@@ -86,7 +86,7 @@ def make_demo_engine(path: str | None = None) -> Engine:
 
 
 def create_demo_schema(engine: Engine) -> None:
-    """Create the non-vector tables for a SQLite demo: speaker, speech, tone_observation.
+    """Create the non-vector tables for a SQLite demo: speaker, speech, speech_stance, tone_observation.
 
     Deliberately skips the ``speech_chunk`` table, whose pgvector column requires PostgreSQL; the
     demo retrieves with an :class:`~cbt_core.persistence.memory.InMemoryChunkRetriever` instead. No
@@ -97,11 +97,21 @@ def create_demo_schema(engine: Engine) -> None:
         engine: The SQLite engine to create the tables on.
     """
     # Local import keeps the ORM row classes encapsulated in the persistence layer.
-    from cbt_core.persistence.rows import SpeakerRow, SpeechRow, ToneObservationRow
+    from cbt_core.persistence.rows import (
+        SpeakerRow,
+        SpeechRow,
+        SpeechStanceRow,
+        ToneObservationRow,
+    )
 
     tables = cast(
         "list[Table]",
-        [SpeakerRow.__table__, SpeechRow.__table__, ToneObservationRow.__table__],
+        [
+            SpeakerRow.__table__,
+            SpeechRow.__table__,
+            SpeechStanceRow.__table__,
+            ToneObservationRow.__table__,
+        ],
     )
     Base.metadata.create_all(engine, tables=tables)
 

@@ -23,6 +23,7 @@ from cbt_core import (
     MemberMovement,
     Speaker,
     Speech,
+    SpeechStance,
     ToneLabel,
     ToneObservation,
 )
@@ -515,6 +516,84 @@ def _direction_word(delta: float | None, *, hawk: str, dove: str, flat: str) -> 
     if delta < -_FLAT_BAND:
         return dove
     return flat
+
+
+_ASPECT_ORDER = (
+    "inflation",
+    "growth",
+    "employment",
+    "balance_sheet",
+    "financial_stability",
+    "guidance",
+    "other",
+)
+
+
+@dataclass(frozen=True)
+class AspectBar:
+    """One policy aspect's net-hawkishness, with diverging-bar geometry for the speech page."""
+
+    label: str
+    score: float
+    side: str  # "hawk" / "dove" / "flat"
+    width: float  # |score| as a half-track percentage
+
+
+@dataclass(frozen=True)
+class StanceView:
+    """The precomputed presentation of a speech's structured stance decomposition (ADR 0021)."""
+
+    rate_path: float
+    rate_side: str
+    rate_width: float
+    rate_word: str
+    uncertainty_pct: float
+    needs_review: bool
+    structured_net: float
+    classifier_net: float
+    lexicon_net: float
+    aspects: tuple[AspectBar, ...]
+
+
+def _bar_side(score: float) -> str:
+    """The diverging-bar side for a signed score: hawkish right, dovish left, else flat."""
+    if score > _FLAT_BAND:
+        return "hawk"
+    if score < -_FLAT_BAND:
+        return "dove"
+    return "flat"
+
+
+def _stance_view(stance: SpeechStance) -> StanceView:
+    """Precompute the speech page's stance decomposition (bars, words) from a stored stance."""
+    aspects = [
+        AspectBar(
+            label=key.replace("_", " ").title(),
+            score=stance.aspect_scores[key],
+            side=_bar_side(stance.aspect_scores[key]),
+            width=min(abs(stance.aspect_scores[key]), 1.0) * 50.0,
+        )
+        for key in _ASPECT_ORDER
+        if key in stance.aspect_scores
+    ]
+    return StanceView(
+        rate_path=stance.rate_path,
+        rate_side=_bar_side(stance.rate_path),
+        rate_width=min(abs(stance.rate_path), 1.0) * 50.0,
+        rate_word=_direction_word(
+            stance.rate_path,
+            hawk="signals tightening ahead",
+            dove="signals easing ahead",
+            flat="no clear policy intent",
+        )
+        or "no clear policy intent",
+        uncertainty_pct=stance.uncertainty * 100.0,
+        needs_review=stance.needs_review,
+        structured_net=stance.structured_net,
+        classifier_net=stance.classifier_net,
+        lexicon_net=stance.lexicon_net,
+        aspects=tuple(aspects),
+    )
 
 
 def _matches(speaker: Speaker, query: str) -> bool:
@@ -1466,6 +1545,7 @@ def speech_detail(
     speaker = speakers.get_speaker(speech.speaker_id)
     movement = committee.movement_for_speech(speech_id)
     rows = _movement_rows(movement)
+    stance = ingestion.get_stance(speech_id)
     return templates.TemplateResponse(
         request,
         "speech.html",
@@ -1474,6 +1554,7 @@ def speech_detail(
             "speaker": speaker,
             "movement": movement,
             "rows": rows,
+            "stance": _stance_view(stance) if stance is not None else None,
             "subject_word": _direction_word(
                 movement.subject.delta,
                 hawk="more hawkish",

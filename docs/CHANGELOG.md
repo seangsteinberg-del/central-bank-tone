@@ -7,6 +7,12 @@ All notable changes to this project are documented in this file. The format foll
 ## [Unreleased]
 
 ### Added
+- Speech page: a "Policy decomposition" panel (ADR 0021) surfacing the structured pipeline's output
+  for each speech: the forward-looking rate-path intent on a diverging bar, the per-aspect
+  net-hawkishness breakdown, the three cross-check nets (sentence, classifier, lexicon), and the
+  directional uncertainty with a review flag when the independent methods disagree.
+  `IngestionService.get_stance` / `stances_by_speech` expose the derived decomposition through the
+  service layer. The demo schema and fresh live setups now create the `speech_stance` table.
 - Ingestion runs the structured stance pipeline on every speech and persists its decomposition
   (ADR 0021) into a new derived `speech_stance` table (migration 0006): the forward-looking
   `rate_path` (policy intent), the directional `uncertainty` (the share of cross-checks that disagree

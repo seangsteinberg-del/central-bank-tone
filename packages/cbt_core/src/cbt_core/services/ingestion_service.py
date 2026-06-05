@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cbt_core.analysis.lexicon import HawkishDovishLexicon
 from cbt_core.domain.models import ToneObservation
-from cbt_core.domain.speech import Speech
+from cbt_core.domain.speech import Speech, SpeechStance
 from cbt_core.llm.client import LlmClient
 from cbt_core.logging import get_logger
 from cbt_core.persistence.repositories import (
@@ -215,6 +215,46 @@ class IngestionService:
             speech = SpeechRepository(session).get(speech_id)
         log.info("speech_fetched")
         return speech
+
+    def get_stance(
+        self, speech_id: UUID, *, actor: str = "system", correlation_id: UUID | None = None
+    ) -> SpeechStance | None:
+        """Return a speech's structured stance decomposition, or ``None`` if it has none yet.
+
+        Args:
+            speech_id: The speech whose decomposition to fetch.
+            actor: Who is performing the action.
+            correlation_id: Correlation id for this call; one is minted if not supplied.
+
+        Returns:
+            The :class:`~cbt_core.domain.speech.SpeechStance`, or ``None`` when the speech has not
+            been scored by the structured pipeline.
+        """
+        correlation = correlation_id if correlation_id is not None else uuid4()
+        log = _logger.bind(correlation_id=str(correlation), actor=actor, speech_id=str(speech_id))
+        with self._session_factory() as session:
+            stance = SpeechStanceRepository(session).get(speech_id)
+        log.info("speech_stance_fetched", found=stance is not None)
+        return stance
+
+    def stances_by_speech(
+        self, *, actor: str = "system", correlation_id: UUID | None = None
+    ) -> dict[UUID, SpeechStance]:
+        """Return every stored stance decomposition, keyed by speech id, for read models.
+
+        Args:
+            actor: Who is performing the action.
+            correlation_id: Correlation id for this call; one is minted if not supplied.
+
+        Returns:
+            A map from speech id to its :class:`~cbt_core.domain.speech.SpeechStance`.
+        """
+        correlation = correlation_id if correlation_id is not None else uuid4()
+        log = _logger.bind(correlation_id=str(correlation), actor=actor)
+        with self._session_factory() as session:
+            stances = SpeechStanceRepository(session).all_by_speech()
+        log.info("speech_stances_listed", count=len(stances))
+        return stances
 
     def list_speeches(
         self, speaker_id: UUID, *, actor: str = "system", correlation_id: UUID | None = None

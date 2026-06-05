@@ -724,6 +724,18 @@ a.speech-title:hover { color: var(--accent); }
   .move-delta { justify-content: flex-start; }
 }
 
+/* Policy decomposition (ADR 0021): rate-path, cross-checks, aspect breakdown on the speech page. */
+.decomp-head { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+.decomp-head .label { font-size: 0.78rem; color: var(--ink-2); margin-bottom: 8px; }
+.decomp-head .label .muted { font-weight: 400; }
+.decomp-rate .move-track { height: 18px; }
+.decomp-rate-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.82rem; }
+.check-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.decomp-uncert { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 0.8rem; }
+.aspect-name { font-family: var(--mono); font-size: 0.82rem; color: var(--ink); }
+.aspect-list { margin-top: 4px; }
+@media (max-width: 640px) { .decomp-head { grid-template-columns: 1fr; gap: 14px; } }
+
 /* --------------------------------------------------------------- Methodology */
 .method-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .method-table th, .method-table td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }

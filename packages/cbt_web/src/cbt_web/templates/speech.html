@@ -25,6 +25,55 @@
   <p class="muted rationale">{{ speech.rationale }}</p>
 </section>
 
+{% if stance %}
+<div class="section-title"><h2>Policy decomposition</h2>
+  <span class="muted num" style="font-size:.82rem">structured pipeline</span>
+</div>
+<section class="panel decomp-panel">
+  <div class="decomp-head">
+    <div class="decomp-rate">
+      <div class="label">Rate-path intent <span class="muted">forward-looking</span></div>
+      <div class="move-track" role="img" aria-label="rate path {{ stance.rate_word }}">
+        <span class="move-center"></span>
+        <span class="move-fill {{ stance.rate_side }}" style="width:{{ "%.1f" | format(stance.rate_width) }}%"></span>
+      </div>
+      <div class="decomp-rate-foot">
+        <span class="score-chip {{ stance.rate_path | score_chip }}">{{ "%+.2f" | format(stance.rate_path) }}</span>
+        <span class="muted">{{ stance.rate_word }}</span>
+      </div>
+    </div>
+    <div class="decomp-checks">
+      <div class="label">Cross-checks <span class="muted">do independent methods agree?</span></div>
+      <div class="check-chips">
+        <span class="score-chip {{ stance.structured_net | score_chip }}">sentence {{ "%+.2f" | format(stance.structured_net) }}</span>
+        <span class="score-chip {{ stance.classifier_net | score_chip }}">classifier {{ "%+.2f" | format(stance.classifier_net) }}</span>
+        <span class="score-chip {{ stance.lexicon_net | score_chip }}">lexicon {{ "%+.2f" | format(stance.lexicon_net) }}</span>
+      </div>
+      <div class="decomp-uncert">
+        <span class="muted">{{ "%.0f" | format(stance.uncertainty_pct) }}% of checks disagree with the headline</span>
+        {% if stance.needs_review %}<span class="review-badge" title="A majority of independent cross-checks disagree on direction">flagged for review</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% if stance.aspects %}
+  <p class="faint-note" style="margin:12px 0 6px">Net hawkishness within each policy aspect the speech touched.</p>
+  <div class="committee-axis"><span>&larr; dovish</span><span></span><span>hawkish &rarr;</span></div>
+  <ul class="move-list aspect-list">
+    {% for a in stance.aspects %}
+    <li class="move-row">
+      <div class="move-who"><span class="aspect-name">{{ a.label }}</span></div>
+      <div class="move-track" role="img" aria-label="{{ a.label }} {{ "%+.2f" | format(a.score) }}">
+        <span class="move-center"></span>
+        <span class="move-fill {{ a.side }}" style="width:{{ "%.1f" | format(a.width) }}%"></span>
+      </div>
+      <div class="move-delta"><span class="score-chip {{ a.score | score_chip }}">{{ "%+.2f" | format(a.score) }}</span></div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
 <div class="section-title"><h2>How the committee has moved</h2>
   <span class="muted num" style="font-size:.82rem">
     {{ speech.central_bank.value | replace("_", " ") | title }} &middot; as of {{ movement.as_of | format_date }}
