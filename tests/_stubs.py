@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from cbt_core.analysis import ClassifiedSentence, StanceLabel, infer_aspect, infer_horizon
 from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import EMBEDDING_DIM, RetrievedChunk
+from cbt_core.domain.tone import ToneLabel
 
 _HAWKISH_CUES = ("hike", "tighten", "raise", "restrictive")
 _DOVISH_CUES = ("cut", "ease", "easing", "accommodat", "stimulus")
@@ -29,6 +30,19 @@ def _stub_stance(sentence: str) -> StanceLabel:
     return StanceLabel.NEUTRAL
 
 
+def _stub_classified_sentences(sentences: Sequence[str]) -> list[ClassifiedSentence]:
+    """Classify each sentence deterministically (shared by the stub and scripted clients)."""
+    return [
+        ClassifiedSentence(
+            text=sentence,
+            label=_stub_stance(sentence),
+            aspect=infer_aspect(sentence),
+            horizon=infer_horizon(sentence),
+        )
+        for sentence in sentences
+    ]
+
+
 class StubLlmClient:
     """A deterministic in-memory LlmClient; records the texts it was asked to analyze."""
 
@@ -44,15 +58,7 @@ class StubLlmClient:
 
     def classify_sentences(self, sentences: Sequence[str]) -> list[ClassifiedSentence]:
         self.classified += 1
-        return [
-            ClassifiedSentence(
-                text=sentence,
-                label=_stub_stance(sentence),
-                aspect=infer_aspect(sentence),
-                horizon=infer_horizon(sentence),
-            )
-            for sentence in sentences
-        ]
+        return _stub_classified_sentences(sentences)
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [_deterministic_embedding(text) for text in texts]
@@ -60,6 +66,35 @@ class StubLlmClient:
     def answer(self, question: str, chunks: Sequence[RetrievedChunk]) -> str:
         self.answers += 1
         return f"Based on {len(chunks)} excerpt(s): a grounded answer to {question!r}."
+
+
+class ScriptedLlmClient:
+    """An LlmClient whose tone is looked up by speech text, so a test can script per-speech scores.
+
+    The non-scripted methods reuse the deterministic stub behaviour, so this is a full
+    :class:`~cbt_core.llm.LlmClient`; the protocol-conformance test asserts it stays in step.
+    """
+
+    def __init__(self, by_text: dict[str, tuple[float, ToneLabel]]) -> None:
+        self._by_text = by_text
+
+    def analyze_tone(self, speech_text: str) -> ToneAnalysis:
+        score, tone = self._by_text[speech_text]
+        return ToneAnalysis(
+            summary=f"Summary of: {speech_text}",
+            tone=tone,
+            score=score,
+            rationale="scripted for the test",
+        )
+
+    def classify_sentences(self, sentences: Sequence[str]) -> list[ClassifiedSentence]:
+        return _stub_classified_sentences(sentences)
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        return [_deterministic_embedding(text) for text in texts]
+
+    def answer(self, question: str, chunks: Sequence[RetrievedChunk]) -> str:
+        return "not used"
 
 
 class StubChunkRetriever:

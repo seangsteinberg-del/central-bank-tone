@@ -9,7 +9,7 @@ interface.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from cbt_core.analysis.stance import ClassifiedSentence
 from cbt_core.domain.analysis import ToneAnalysis
@@ -21,8 +21,14 @@ type Embedding = list[float]
 __all__ = ["EMBEDDING_DIM", "Embedding", "LlmClient"]
 
 
+@runtime_checkable
 class LlmClient(Protocol):
-    """Protocol for the generative model used to analyze speeches and answer questions."""
+    """Protocol for the generative model used to analyze speeches and answer questions.
+
+    Runtime-checkable so a test can assert (via ``isinstance``) that every full test double and
+    production client implements the whole surface; this guards against a double silently lagging
+    behind a newly added method (ADR 0021 added :meth:`classify_sentences`).
+    """
 
     def analyze_tone(self, speech_text: str) -> ToneAnalysis:
         """Summarize a speech and judge its monetary-policy tone.

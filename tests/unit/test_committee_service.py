@@ -8,46 +8,22 @@ how much they moved.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
+from tests._stubs import ScriptedLlmClient
 
 from cbt_core import (
     CentralBank,
     CommitteeService,
     IngestionService,
     SpeakerService,
-    ToneAnalysis,
     ToneLabel,
 )
-from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.exceptions import EntityNotFoundError
 from cbt_core.services._support import IdFactory
-
-
-class _ScriptedLlm:
-    """An LlmClient whose tone for a speech is looked up by its text, so a test can script scores."""
-
-    def __init__(self, by_text: dict[str, tuple[float, ToneLabel]]) -> None:
-        self._by_text = by_text
-
-    def analyze_tone(self, speech_text: str) -> ToneAnalysis:
-        score, tone = self._by_text[speech_text]
-        return ToneAnalysis(
-            summary=f"Summary of: {speech_text}",
-            tone=tone,
-            score=score,
-            rationale="scripted for the test",
-        )
-
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        return [[0.0, 0.0] for _ in texts]
-
-    def answer(self, question: str, chunks: Sequence[RetrievedChunk]) -> str:
-        return "not used"
 
 
 def _tone_for(score: float) -> ToneLabel:
@@ -81,7 +57,7 @@ def _seed(
         f"text-{name}-{year}": (score, _tone_for(score)) for name, _, _, year, score in _SCENARIO
     }
     speakers = SpeakerService(session_factory, id_factory=id_factory)
-    ingestion = IngestionService(session_factory, _ScriptedLlm(by_text), id_factory=id_factory)
+    ingestion = IngestionService(session_factory, ScriptedLlmClient(by_text), id_factory=id_factory)
     speech_ids: dict[tuple[str, int], UUID] = {}
     for name, bank, role, year, _score in _SCENARIO:
         speaker = speakers.ensure_speaker(name=name, central_bank=bank, role=role)
@@ -170,7 +146,7 @@ def test_single_reading_committee_has_no_overall_delta(
 ) -> None:
     speakers = SpeakerService(session_factory, id_factory=id_factory)
     by_text = {"only-speech": (0.25, ToneLabel.HAWKISH)}
-    ingestion = IngestionService(session_factory, _ScriptedLlm(by_text), id_factory=id_factory)
+    ingestion = IngestionService(session_factory, ScriptedLlmClient(by_text), id_factory=id_factory)
     speaker = speakers.register_speaker(name="Solo Governor", central_bank=_FED, role="Governor")
     speech = ingestion.ingest_speech(
         speaker_id=speaker.id,
