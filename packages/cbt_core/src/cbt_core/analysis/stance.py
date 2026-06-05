@@ -503,29 +503,35 @@ def aggregate_stances(
 
 @dataclass(frozen=True)
 class StanceAssessment:
-    """The ensembled stance verdict for a speech (ADR 0021): one score with an uncertainty band.
+    """The ensembled stance verdict for a speech (ADR 0021): one headline score with its context.
 
-    The production ``score`` is the model's sentence-level measure (the strongest single signal); the
-    classifier and lexicon are independent cross-checks, never averaged into the score. Their spread
-    from the model is the ``uncertainty``: a wide spread or an opposite-sign disagreement sets
-    ``needs_review``, surfacing distrust rather than hiding it (ADR 0008).
+    The headline ``score`` and ``tone`` are the model's holistic judgement of the whole speech (its
+    dynamic range is what surfaces moves and divergence for a macro reader). The structured
+    sentence-level pipeline supplies the decision-relevant decomposition: ``rate_path`` (forward
+    intent, separated from backward-looking description) and the per-aspect breakdown in
+    ``aggregate``. Three independent signals (the structured net, the classifier, the lexicon) are
+    not averaged into the headline (ADR 0008) but compared against it; their spread is the
+    ``uncertainty`` band, and a wide spread or an opposite-sign disagreement sets ``needs_review``.
 
     Attributes:
-        score: The production net-hawkishness, taken from the model aggregate, in ``[-1.0, 1.0]``.
-        tone: The discrete document tone from the model aggregate.
-        aggregate: The full model :class:`StanceAggregate` (forward sub-measure, per-aspect, counts).
-        classifier_net: The supervised classifier's net-hawkishness cross-check over the same
-            sentences.
+        score: The headline net-hawkishness (the model's holistic score), in ``[-1.0, 1.0]``.
+        tone: The headline discrete tone.
+        rate_path: The forward-looking net-hawkishness (policy intent), from the structured pipeline.
+        aggregate: The structured :class:`StanceAggregate` (counts, forward sub-measure, per-aspect).
+        structured_net: The structured sentence-level net-hawkishness cross-check.
+        classifier_net: The supervised classifier's net-hawkishness cross-check over the sentences.
         lexicon_score: The deterministic lexicon's net-hawkishness cross-check.
-        uncertainty: The spread (max minus min) among the fired signals, in ``[0.0, 2.0]``; ``0.0``
-            when fewer than two signals fired.
+        uncertainty: The spread (max minus min) among the headline and the fired cross-checks, in
+            ``[0.0, 2.0]``.
         needs_review: Whether the signals disagree enough to warrant review (a spread at or above
             the threshold, or any opposite-sign disagreement).
     """
 
     score: float
     tone: ToneLabel
+    rate_path: float
     aggregate: StanceAggregate
+    structured_net: float
     classifier_net: float
     lexicon_score: float
     uncertainty: float
@@ -533,6 +539,8 @@ class StanceAssessment:
 
 
 def combine_signals(
+    headline_score: float,
+    headline_tone: ToneLabel,
     aggregate: StanceAggregate,
     classifier_net: float,
     lexicon_score: float,
@@ -540,33 +548,37 @@ def combine_signals(
     lexicon_fired: bool,
     review_threshold: float = _DEFAULT_REVIEW_THRESHOLD,
 ) -> StanceAssessment:
-    """Combine the model aggregate with the classifier and lexicon cross-checks into one verdict.
+    """Combine the holistic headline with the structured, classifier, and lexicon cross-checks.
 
-    The model aggregate is the production signal; the classifier and lexicon are not averaged into
-    it (ADR 0008) but compared against it to quantify uncertainty. The lexicon is included only when
-    it fired, since an abstention is not a disagreement.
+    The holistic score is the headline (ADR 0021); the structured net, the classifier, and the
+    lexicon are not averaged into it (ADR 0008) but compared against it to quantify uncertainty. The
+    lexicon is included only when it fired, since an abstention is not a disagreement.
 
     Args:
-        aggregate: The model's :class:`StanceAggregate` for the speech.
+        headline_score: The model's holistic net-hawkishness for the whole speech (the headline).
+        headline_tone: The model's holistic discrete tone (the headline).
+        aggregate: The structured :class:`StanceAggregate` for the speech.
         classifier_net: The supervised classifier's net-hawkishness over the same sentences.
         lexicon_score: The deterministic lexicon's net-hawkishness for the speech.
         lexicon_fired: Whether the lexicon matched any term (so its score carries signal).
         review_threshold: The minimum spread that flags the speech for review.
 
     Returns:
-        The :class:`StanceAssessment` carrying the production score, the cross-checks, the spread,
-        and the review flag.
+        The :class:`StanceAssessment` carrying the headline, the rate-path, the cross-checks, the
+        spread, and the review flag.
     """
-    signals = [aggregate.net_hawkishness, classifier_net]
+    signals = [headline_score, aggregate.net_hawkishness, classifier_net]
     if lexicon_fired:
         signals.append(lexicon_score)
     spread = max(signals) - min(signals)
     opposite_sign = any(a * b < 0 for a, b in itertools.combinations(signals, 2))
     needs_review = spread >= review_threshold or opposite_sign
     return StanceAssessment(
-        score=aggregate.net_hawkishness,
-        tone=aggregate.tone,
+        score=headline_score,
+        tone=headline_tone,
+        rate_path=aggregate.forward_net,
         aggregate=aggregate,
+        structured_net=aggregate.net_hawkishness,
         classifier_net=classifier_net,
         lexicon_score=lexicon_score,
         uncertainty=spread,

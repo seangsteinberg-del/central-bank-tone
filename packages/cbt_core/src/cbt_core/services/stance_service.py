@@ -26,6 +26,7 @@ from cbt_core.analysis import (
     combine_signals,
     split_sentences,
 )
+from cbt_core.domain.tone import ToneLabel
 from cbt_core.llm.client import LlmClient
 
 
@@ -57,17 +58,27 @@ class StanceService:
         self._filter = relevance_filter if relevance_filter is not None else PolicyRelevanceFilter()
         self._review_threshold = review_threshold
 
-    def assess(self, text: str) -> StanceAssessment:
-        """Score a speech's tone from its policy-relevant sentences, with an uncertainty band.
+    def assess(
+        self, text: str, *, headline_score: float, headline_tone: ToneLabel
+    ) -> StanceAssessment:
+        """Decompose and cross-check a speech around its holistic headline score.
+
+        The caller supplies the headline (the model's holistic whole-speech judgement, the dynamic
+        index a macro reader tracks). This service runs the structured sentence-level pipeline to
+        add the rate-path and per-aspect decomposition, and cross-checks the headline against the
+        structured net, the supervised classifier, and the lexicon, reporting their spread as an
+        uncertainty band. The headline is never overwritten by the cross-checks (ADR 0008).
 
         Args:
             text: The full speech text.
+            headline_score: The model's holistic net-hawkishness for the speech (the headline).
+            headline_tone: The model's holistic discrete tone (the headline).
 
         Returns:
-            The :class:`~cbt_core.analysis.StanceAssessment`: the model's net-hawkishness measure
-            and tone (the production score), the classifier and lexicon cross-checks, the spread
-            between them as uncertainty, and whether they disagree enough to warrant review. With no
-            policy-relevant sentence the model aggregate is an honest abstention (neutral, zero).
+            The :class:`~cbt_core.analysis.StanceAssessment`: the headline, the rate-path (forward)
+            measure, the per-aspect breakdown, the three cross-checks, the uncertainty spread, and
+            the review flag. With no policy-relevant sentence the structured part is an honest
+            abstention but the headline is preserved.
         """
         sentences = split_sentences(text)
         relevant = self._filter.filter(sentences)
@@ -85,6 +96,8 @@ class StanceService:
         )
         lexicon_result = self._lexicon.score(text)
         return combine_signals(
+            headline_score,
+            headline_tone,
             model_aggregate,
             classifier_aggregate.net_hawkishness,
             lexicon_result.score,

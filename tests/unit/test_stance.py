@@ -28,8 +28,10 @@ from cbt_core.analysis import (
 )
 
 
-def _aggregate(net: float, tone: ToneLabel = ToneLabel.NEUTRAL) -> StanceAggregate:
-    """A minimal aggregate with a chosen net measure, for testing the signal combiner."""
+def _aggregate(
+    net: float, tone: ToneLabel = ToneLabel.NEUTRAL, *, forward: float = 0.0
+) -> StanceAggregate:
+    """A minimal aggregate with a chosen net and forward measure, for testing the combiner."""
     return StanceAggregate(
         net_hawkishness=net,
         tone=tone,
@@ -38,7 +40,7 @@ def _aggregate(net: float, tone: ToneLabel = ToneLabel.NEUTRAL) -> StanceAggrega
         neutral=0,
         relevant=1,
         total=1,
-        forward_net=0.0,
+        forward_net=forward,
         forward_relevant=0,
         by_aspect={},
     )
@@ -274,22 +276,32 @@ def test_infer_horizon_reads_temporal_cues(sentence: str, expected: Horizon) -> 
 
 
 @pytest.mark.unit
-def test_combine_signals_takes_score_and_tone_from_the_model_aggregate() -> None:
+def test_combine_signals_keeps_the_holistic_headline_and_exposes_cross_checks() -> None:
     result = combine_signals(
-        _aggregate(0.6, ToneLabel.HAWKISH),
+        0.6,
+        ToneLabel.HAWKISH,
+        _aggregate(0.55, forward=0.7),
         classifier_net=0.5,
         lexicon_score=0.0,
         lexicon_fired=False,
     )
     assert result.score == 0.6
     assert result.tone is ToneLabel.HAWKISH
+    assert result.rate_path == 0.7
+    assert result.structured_net == 0.55
     assert result.classifier_net == 0.5
 
 
 @pytest.mark.unit
 def test_combine_signals_agreement_is_low_uncertainty_and_no_review() -> None:
+    # headline 0.3, structured 0.35, classifier 0.4, lexicon 0.4 -> spread 0.1.
     result = combine_signals(
-        _aggregate(0.3), classifier_net=0.35, lexicon_score=0.4, lexicon_fired=True
+        0.3,
+        ToneLabel.NEUTRAL,
+        _aggregate(0.35),
+        classifier_net=0.4,
+        lexicon_score=0.4,
+        lexicon_fired=True,
     )
     assert result.uncertainty == pytest.approx(0.1)
     assert result.needs_review is False
@@ -297,8 +309,14 @@ def test_combine_signals_agreement_is_low_uncertainty_and_no_review() -> None:
 
 @pytest.mark.unit
 def test_combine_signals_wide_spread_flags_review() -> None:
+    # headline 0.8 vs structured 0.0 vs classifier 0.0 -> spread 0.8.
     result = combine_signals(
-        _aggregate(0.8), classifier_net=0.0, lexicon_score=0.0, lexicon_fired=False
+        0.8,
+        ToneLabel.HAWKISH,
+        _aggregate(0.0),
+        classifier_net=0.0,
+        lexicon_score=0.0,
+        lexicon_fired=False,
     )
     assert result.uncertainty == pytest.approx(0.8)
     assert result.needs_review is True
@@ -306,9 +324,14 @@ def test_combine_signals_wide_spread_flags_review() -> None:
 
 @pytest.mark.unit
 def test_combine_signals_opposite_sign_flags_review_even_within_the_band() -> None:
-    # A small spread (0.2) but the model and classifier disagree on direction.
+    # A small spread (0.2) but the headline and structured net disagree on direction.
     result = combine_signals(
-        _aggregate(0.1), classifier_net=-0.1, lexicon_score=0.0, lexicon_fired=False
+        0.1,
+        ToneLabel.NEUTRAL,
+        _aggregate(-0.1),
+        classifier_net=0.1,
+        lexicon_score=0.0,
+        lexicon_fired=False,
     )
     assert result.uncertainty == pytest.approx(0.2)
     assert result.needs_review is True
@@ -318,7 +341,12 @@ def test_combine_signals_opposite_sign_flags_review_even_within_the_band() -> No
 def test_combine_signals_ignores_an_abstaining_lexicon() -> None:
     # The lexicon score is extreme but it abstained, so it must not count toward the spread.
     result = combine_signals(
-        _aggregate(0.3), classifier_net=0.3, lexicon_score=-1.0, lexicon_fired=False
+        0.3,
+        ToneLabel.NEUTRAL,
+        _aggregate(0.3),
+        classifier_net=0.3,
+        lexicon_score=-1.0,
+        lexicon_fired=False,
     )
     assert result.uncertainty == pytest.approx(0.0)
     assert result.needs_review is False
@@ -327,7 +355,12 @@ def test_combine_signals_ignores_an_abstaining_lexicon() -> None:
 @pytest.mark.unit
 def test_combine_signals_counts_a_fired_lexicon_toward_the_spread() -> None:
     result = combine_signals(
-        _aggregate(0.3), classifier_net=0.3, lexicon_score=0.9, lexicon_fired=True
+        0.3,
+        ToneLabel.NEUTRAL,
+        _aggregate(0.3),
+        classifier_net=0.3,
+        lexicon_score=0.9,
+        lexicon_fired=True,
     )
     assert result.uncertainty == pytest.approx(0.6)
     assert result.needs_review is True

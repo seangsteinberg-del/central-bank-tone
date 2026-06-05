@@ -25,14 +25,15 @@ All notable changes to this project are documented in this file. The format foll
   horizon enums), not one call per sentence; the keyless offline client uses the supervised
   classifier for stance and deterministic cue heuristics (`infer_aspect`, `infer_horizon`) for the
   aspect and horizon axes.
-- `StanceService` and `StanceAssessment` (ADR 0021): the ensemble brain that runs the structured
-  pipeline (split, filter, model-classify, aggregate) and cross-checks the model's net-hawkishness
-  against the supervised classifier and the lexicon over the same sentences. The model aggregate is
-  the production score; the cross-checks are not averaged in (`combine_signals`) but compared, and
-  their spread is reported as an explicit uncertainty band that flags a speech for review on a wide
-  spread or an opposite-sign disagreement (an abstaining lexicon is excluded so it cannot fake a
-  disagreement). The classifier and lexicon are independent local cross-checks, never a fallback for
-  the model.
+- `StanceService` and `StanceAssessment` (ADR 0021): the ensemble brain. The headline score and tone
+  stay the model's holistic whole-speech judgement (its dynamic range is what surfaces moves and
+  divergence for a macro reader); the structured sentence-level pipeline adds the decision-relevant
+  decomposition, a `rate_path` (forward-looking policy intent, separated from backward-looking
+  description) and a per-aspect breakdown. Three independent signals (the structured net, the
+  supervised classifier, the lexicon) are not averaged into the headline (`combine_signals`,
+  ADR 0008) but compared against it; their spread is an explicit uncertainty band that flags a speech
+  for review on a wide spread or an opposite-sign disagreement (an abstaining lexicon is excluded so
+  it cannot fake one). The cross-checks quantify when to distrust the headline, never replace it.
 - Dashboard Policy Monitor, a macro-desk redesign of the landing page. The hero is now a sortable
   bank-by-bank matrix (current committee stance with a diverging move-track, 1-month and 3-month
   change, a 6-month inline sparkline, and the hawk/dove committee split), with server-rendered
