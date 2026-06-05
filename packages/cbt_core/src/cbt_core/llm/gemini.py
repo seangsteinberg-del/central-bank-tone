@@ -33,6 +33,11 @@ _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 _MAX_ATTEMPTS = 6
 _BACKOFF_BASE_SECONDS = 2.0
 
+# The batched sentence classifier aligns the model's verdicts to the input sentences by position.
+# Gemini usually returns exactly one verdict per sentence but occasionally drifts by a few; an
+# overlap below this fraction means the response is too misaligned to trust and is rejected.
+_MIN_ALIGN_RATIO = 0.8
+
 
 def _with_backoff[T](call: Callable[[], T], *, operation: str) -> T:
     """Call ``call``, retrying transient Gemini errors with exponential backoff.
@@ -279,15 +284,26 @@ class GeminiClient:
             # No exc_info: the detail echoes the model's response, which we do not log (section 7).
             _logger.error("gemini_unparseable_response", model=self._model)  # noqa: TRY400
             raise LlmError("Gemini returned an unparseable sentence classification") from exc
-        if len(verdicts) != len(sentences):
+        if not verdicts:
+            raise LlmError("Gemini returned no sentence classifications")
+        # Gemini occasionally returns a few more or fewer verdicts than sentences (it re-splits on an
+        # abbreviation or a decimal). The aggregate is count-based and does not depend on exact text
+        # alignment, so a minor drift is tolerated by aligning to the shorter list; a wildly
+        # misaligned response (less than _MIN_ALIGN_RATIO overlap) is rejected rather than trusted.
+        shorter, longer = sorted((len(verdicts), len(sentences)))
+        if shorter < _MIN_ALIGN_RATIO * longer:
             raise LlmError(
                 f"Gemini classified {len(verdicts)} sentences but {len(sentences)} were sent"
+            )
+        if len(verdicts) != len(sentences):
+            _logger.warning(
+                "gemini_sentence_count_drift", sent=len(sentences), classified=len(verdicts)
             )
         classified = [
             ClassifiedSentence(
                 text=sentence, label=verdict.stance, aspect=verdict.aspect, horizon=verdict.horizon
             )
-            for sentence, verdict in zip(sentences, verdicts, strict=True)
+            for sentence, verdict in zip(sentences, verdicts, strict=False)
         ]
         _logger.info(
             "gemini_sentences_classified",

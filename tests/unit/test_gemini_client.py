@@ -114,11 +114,22 @@ def test_classify_sentences_raises_on_unparseable_response(text: str) -> None:
 
 
 @pytest.mark.unit
-def test_classify_sentences_raises_when_verdict_count_mismatches() -> None:
+def test_classify_sentences_tolerates_minor_count_drift() -> None:
+    client = _client()
+    # Nine verdicts for ten sentences (a small drift): align to the shorter list, do not fail.
+    nine = json.dumps([{"stance": "hawkish", "aspect": "other", "horizon": "forward"}] * 9)
+    client.models.generate_content.return_value.text = nine
+    result = _gemini(client).classify_sentences([f"sentence {i}" for i in range(10)])
+    assert len(result) == 9
+    assert all(item.label is StanceLabel.HAWKISH for item in result)
+
+
+@pytest.mark.unit
+def test_classify_sentences_rejects_a_wildly_misaligned_response() -> None:
     client = _client()
     client.models.generate_content.return_value.text = _VERDICTS_JSON  # two verdicts
     with pytest.raises(LlmError, match="were sent"):
-        _gemini(client).classify_sentences(["only one sentence"])
+        _gemini(client).classify_sentences([f"sentence {i}" for i in range(10)])
 
 
 # --- embed -----------------------------------------------------------------------------------
