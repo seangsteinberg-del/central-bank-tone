@@ -11,6 +11,7 @@ import io
 import logging
 import sys
 from typing import cast
+from uuid import UUID, uuid4
 
 import structlog
 from structlog.typing import FilteringBoundLogger, Processor
@@ -80,3 +81,32 @@ def bind_request_context(**values: str) -> None:
 def clear_request_context() -> None:
     """Clear the contextvars-scoped log context for the current task."""
     structlog.contextvars.clear_contextvars()
+
+
+def current_correlation_id() -> str | None:
+    """Return the correlation id bound on the current log context, if any.
+
+    Returns ``None`` when nothing is bound (a CLI or worker call with no adapter middleware).
+    """
+    bound = structlog.contextvars.get_contextvars().get("correlation_id")
+    return bound if isinstance(bound, str) else None
+
+
+def resolve_correlation_id(correlation_id: UUID | None) -> UUID:
+    """Resolve the correlation id for a service call (CLAUDE.md section 7).
+
+    Prefers an explicitly passed id; otherwise the one the adapter bound onto the log context for
+    the request, so the service's own log lines correlate with the rest of the request; otherwise a
+    freshly minted id (a CLI or worker call with no adapter context). This is why a service need not
+    be threaded the id through every call to stay correlated: the web adapter binds it once on the
+    request and the services pick it up here.
+    """
+    if correlation_id is not None:
+        return correlation_id
+    bound = current_correlation_id()
+    if bound is not None:
+        try:
+            return UUID(bound)
+        except ValueError:
+            return uuid4()
+    return uuid4()

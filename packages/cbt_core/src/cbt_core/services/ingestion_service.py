@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -19,7 +19,7 @@ from cbt_core.analysis.lexicon import HawkishDovishLexicon
 from cbt_core.domain.models import ToneObservation
 from cbt_core.domain.speech import Speech, SpeechStance
 from cbt_core.llm.client import LlmClient
-from cbt_core.logging import get_logger
+from cbt_core.logging import get_logger, resolve_correlation_id
 from cbt_core.persistence.repositories import (
     SpeakerRepository,
     SpeechRepository,
@@ -101,7 +101,7 @@ class IngestionService:
             EntityNotFoundError: If the speaker does not exist.
             LlmError: If the model call fails or returns an unusable response.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         encoded = text.encode("utf-8")
         source_sha256 = hashlib.sha256(encoded).hexdigest()
         log = _logger.bind(
@@ -209,7 +209,7 @@ class IngestionService:
         Raises:
             EntityNotFoundError: If no speech has that id.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speech_id=str(speech_id))
         with self._session_factory() as session:
             speech = SpeechRepository(session).get(speech_id)
@@ -230,7 +230,7 @@ class IngestionService:
             The :class:`~cbt_core.domain.speech.SpeechStance`, or ``None`` when the speech has not
             been scored by the structured pipeline.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speech_id=str(speech_id))
         with self._session_factory() as session:
             stance = SpeechStanceRepository(session).get(speech_id)
@@ -249,7 +249,7 @@ class IngestionService:
         Returns:
             A map from speech id to its :class:`~cbt_core.domain.speech.SpeechStance`.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor)
         with self._session_factory() as session:
             stances = SpeechStanceRepository(session).all_by_speech()
@@ -272,7 +272,7 @@ class IngestionService:
         Raises:
             EntityNotFoundError: If the speaker does not exist.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speaker_id=str(speaker_id))
         with self._session_factory() as session:
             SpeakerRepository(session).get(speaker_id)

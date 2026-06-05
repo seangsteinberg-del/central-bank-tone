@@ -6,13 +6,13 @@ RAG. Idempotent: a speech that is already indexed is skipped, so re-running spen
 
 from __future__ import annotations
 
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from cbt_core.analysis.chunking import chunk_text
 from cbt_core.llm.client import LlmClient
-from cbt_core.logging import get_logger
+from cbt_core.logging import get_logger, resolve_correlation_id
 from cbt_core.persistence.repositories import SpeechChunkRepository, SpeechRepository
 from cbt_core.services._support import IdFactory, default_id_factory
 
@@ -63,7 +63,7 @@ class IndexingService:
             EntityNotFoundError: If the speech does not exist.
             LlmError: If embedding fails or returns the wrong number of vectors.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speech_id=str(speech_id))
 
         with self._session_factory() as session:

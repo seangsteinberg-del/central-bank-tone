@@ -8,11 +8,11 @@ reason rather than fabricating an answer (no silent fallback).
 from __future__ import annotations
 
 from typing import Protocol
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from cbt_core.domain.qa import Answer, Citation, RetrievedChunk
 from cbt_core.llm.client import Embedding, LlmClient
-from cbt_core.logging import get_logger
+from cbt_core.logging import get_logger, resolve_correlation_id
 from cbt_core.services.speaker_service import SpeakerService
 
 _logger = get_logger(__name__)
@@ -94,7 +94,7 @@ class QaService:
             EntityNotFoundError: If the speaker does not exist.
             LlmError: If embedding or answering fails.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speaker_id=str(speaker_id))
         self._speaker_service.get_speaker(speaker_id, actor=actor, correlation_id=correlation)
 
@@ -130,7 +130,7 @@ class QaService:
         Raises:
             LlmError: If embedding or answering fails.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor)
 
         query_embedding = self._llm.embed([question])[0]

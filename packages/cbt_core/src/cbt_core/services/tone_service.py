@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from cbt_core.domain.models import ToneObservation
 from cbt_core.domain.tone import ToneLabel
 from cbt_core.exceptions import EntityNotFoundError, InvalidInputError
-from cbt_core.logging import get_logger
+from cbt_core.logging import get_logger, resolve_correlation_id
 from cbt_core.persistence.repositories import SpeakerRepository, ToneObservationRepository
 from cbt_core.services._support import Clock, IdFactory, default_id_factory, utc_now
 
@@ -74,7 +74,7 @@ class ToneService:
             InvalidInputError: If the observation fails domain validation.
             EntityNotFoundError: If the speaker does not exist.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speaker_id=str(speaker_id))
         encoded = source_text.encode("utf-8")
         source_sha256 = hashlib.sha256(encoded).hexdigest()
@@ -124,7 +124,7 @@ class ToneService:
         Raises:
             EntityNotFoundError: If the speaker does not exist.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speaker_id=str(speaker_id))
         with self._session_factory() as session:
             if not SpeakerRepository(session).exists(speaker_id):

@@ -6,7 +6,7 @@ boundary and opens a log context with a correlation id, an actor, and the speake
 
 from __future__ import annotations
 
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session, sessionmaker
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from cbt_core.domain.models import Speaker
 from cbt_core.domain.registry import CentralBank
 from cbt_core.exceptions import InvalidInputError
-from cbt_core.logging import get_logger
+from cbt_core.logging import get_logger, resolve_correlation_id
 from cbt_core.persistence.repositories import SpeakerRepository
 from cbt_core.services._support import IdFactory, default_id_factory
 
@@ -63,7 +63,7 @@ class SpeakerService:
         Raises:
             InvalidInputError: If the supplied fields fail domain validation.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor)
         try:
             speaker = Speaker(
@@ -107,7 +107,7 @@ class SpeakerService:
         Raises:
             InvalidInputError: If a new speaker's fields fail domain validation.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         with self._session_factory() as session:
             existing = SpeakerRepository(session).find_by_name_and_central_bank(name, central_bank)
         if existing is not None:
@@ -132,7 +132,7 @@ class SpeakerService:
         Raises:
             EntityNotFoundError: If no speaker has that id.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speaker_id=str(speaker_id))
         with self._session_factory() as session:
             speaker = SpeakerRepository(session).get(speaker_id)
@@ -151,7 +151,7 @@ class SpeakerService:
         Returns:
             The list of speakers.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor)
         with self._session_factory() as session:
             speakers = SpeakerRepository(session).list_all()

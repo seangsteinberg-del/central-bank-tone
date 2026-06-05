@@ -13,13 +13,13 @@ the view never implies a reading is more recent than it is.
 from __future__ import annotations
 
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from cbt_core.domain.committee import CommitteeMovement, MemberMovement
 from cbt_core.domain.models import Speaker
-from cbt_core.logging import get_logger
+from cbt_core.logging import get_logger, resolve_correlation_id
 from cbt_core.persistence.repositories import (
     SpeakerRepository,
     SpeechRepository,
@@ -57,7 +57,7 @@ class CommitteeService:
         Raises:
             EntityNotFoundError: If no speech has that id.
         """
-        correlation = correlation_id if correlation_id is not None else uuid4()
+        correlation = resolve_correlation_id(correlation_id)
         log = _logger.bind(correlation_id=str(correlation), actor=actor, speech_id=str(speech_id))
         with self._session_factory() as session:
             speech = SpeechRepository(session).get(speech_id)
