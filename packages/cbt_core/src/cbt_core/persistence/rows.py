@@ -9,6 +9,7 @@ truth.
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
@@ -34,6 +35,19 @@ from cbt_core.domain.tone import ToneLabel
 from cbt_core.persistence.base import Base
 
 
+def _enum_values(enum_type: type[StrEnum]) -> list[str]:
+    """Persist a Python enum by its lowercase member values, matching the migrations.
+
+    SQLAlchemy stores a Python enum by member NAME by default (``FEDERAL_RESERVE``); the alembic
+    migrations, the production schema's source of truth (CLAUDE.md sections 2 and 6), define the
+    lowercase member VALUES (``federal_reserve``). Passing this as ``values_callable`` makes the
+    ORM, and the ``create_all`` schema build used by the SQLite demo and the no-pgvector live
+    database (ADR 0018), emit the same labels as the migrations, so the two schema-build paths
+    cannot drift and the ORM round-trips against a migrated database.
+    """
+    return [member.value for member in enum_type]
+
+
 class SpeakerRow(Base):
     """ORM row for a speaker."""
 
@@ -42,7 +56,8 @@ class SpeakerRow(Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     central_bank: Mapped[CentralBank] = mapped_column(
-        Enum(CentralBank, name="central_bank", native_enum=True), nullable=False
+        Enum(CentralBank, name="central_bank", native_enum=True, values_callable=_enum_values),
+        nullable=False,
     )
     role: Mapped[str] = mapped_column(String(200), nullable=False)
 
@@ -66,7 +81,8 @@ class ToneObservationRow(Base):
     )
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     tone: Mapped[ToneLabel] = mapped_column(
-        Enum(ToneLabel, name="tone_label", native_enum=True), nullable=False
+        Enum(ToneLabel, name="tone_label", native_enum=True, values_callable=_enum_values),
+        nullable=False,
     )
     score: Mapped[float] = mapped_column(Float, nullable=False)
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -96,7 +112,8 @@ class SpeechRow(Base):
         ForeignKey("speaker.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     central_bank: Mapped[CentralBank] = mapped_column(
-        Enum(CentralBank, name="central_bank", native_enum=True), nullable=False
+        Enum(CentralBank, name="central_bank", native_enum=True, values_callable=_enum_values),
+        nullable=False,
     )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     url: Mapped[str] = mapped_column(String(2000), nullable=False)
@@ -106,7 +123,8 @@ class SpeechRow(Base):
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     tone: Mapped[ToneLabel] = mapped_column(
-        Enum(ToneLabel, name="tone_label", native_enum=True), nullable=False
+        Enum(ToneLabel, name="tone_label", native_enum=True, values_callable=_enum_values),
+        nullable=False,
     )
     score: Mapped[float] = mapped_column(Float, nullable=False)
     lexicon_score: Mapped[float] = mapped_column(Float, nullable=False)
