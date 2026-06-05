@@ -6,10 +6,24 @@ classifier and lexicon, so the assessment is fully reproducible without a networ
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from tests._stubs import StubLlmClient
 
-from cbt_core import StanceAssessment, StanceService, ToneLabel
+from cbt_core import CentralBank, StanceAssessment, StanceService, ToneLabel
+
+_FED = CentralBank.FEDERAL_RESERVE
+
+
+class _FixedClassifier:
+    """A stand-in classifier that assigns every sentence the same label (to control the cross-check)."""
+
+    def __init__(self, label: str) -> None:
+        self._label = label
+
+    def score(self, _text: str) -> SimpleNamespace:
+        return SimpleNamespace(label=self._label, score=0.0, probabilities={}, confidence=1.0)
 
 
 @pytest.mark.unit
@@ -21,6 +35,7 @@ def test_assess_keeps_the_headline_and_runs_the_pipeline(stub_llm_client: StubLl
         "Thank you for the kind introduction.",
         headline_score=0.42,
         headline_tone=ToneLabel.HAWKISH,
+        central_bank=_FED,
     )
     assert isinstance(result, StanceAssessment)
     # The headline is preserved; the cross-checks never overwrite it.
@@ -35,6 +50,7 @@ def test_assess_drops_filler_with_the_relevance_filter(stub_llm_client: StubLlmC
         "Inflation remains too high and we will raise rates. Thank you all for coming today.",
         headline_score=0.3,
         headline_tone=ToneLabel.HAWKISH,
+        central_bank=_FED,
     )
     # The greeting is not policy-relevant, so the relevant count is below the total sentence count.
     assert result.aggregate.total == 2
@@ -49,6 +65,7 @@ def test_assess_preserves_headline_when_structured_part_abstains(
         "Thank you all. It is a pleasure to be here with you today.",
         headline_score=0.0,
         headline_tone=ToneLabel.NEUTRAL,
+        central_bank=_FED,
     )
     assert result.aggregate.fired is False
     assert result.structured_net == 0.0
@@ -62,9 +79,26 @@ def test_assess_populates_rate_path_and_both_cross_checks(stub_llm_client: StubL
         "We will cut rates and ease policy to support growth as inflation falls.",
         headline_score=-0.3,
         headline_tone=ToneLabel.DOVISH,
+        central_bank=_FED,
     )
     assert result.score == -0.3
     assert result.rate_path == result.aggregate.forward_net
     assert -1.0 <= result.structured_net <= 1.0
     assert -1.0 <= result.classifier_net <= 1.0
-    assert result.uncertainty >= 0.0
+    assert 0.0 <= result.uncertainty <= 1.0
+
+
+@pytest.mark.unit
+def test_assess_excludes_the_classifier_for_non_fed_banks(stub_llm_client: StubLlmClient) -> None:
+    # A classifier that always dissents (dovish) against a hawkish headline.
+    service = StanceService(stub_llm_client, classifier=_FixedClassifier("dovish"))
+    text = "We will raise interest rates and tighten policy as inflation runs too high."
+    fed = service.assess(
+        text, headline_score=0.5, headline_tone=ToneLabel.HAWKISH, central_bank=_FED
+    )
+    ecb = service.assess(
+        text, headline_score=0.5, headline_tone=ToneLabel.HAWKISH, central_bank=CentralBank.ECB
+    )
+    # For the Fed the dovish classifier is a valid cross-check that dissents; for the ECB it is
+    # excluded (it is FOMC-trained and does not transfer), so the ECB shows less disagreement.
+    assert fed.uncertainty > ecb.uncertainty

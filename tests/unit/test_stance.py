@@ -290,77 +290,111 @@ def test_combine_signals_keeps_the_holistic_headline_and_exposes_cross_checks() 
     assert result.rate_path == 0.7
     assert result.structured_net == 0.55
     assert result.classifier_net == 0.5
-
-
-@pytest.mark.unit
-def test_combine_signals_agreement_is_low_uncertainty_and_no_review() -> None:
-    # headline 0.3, structured 0.35, classifier 0.4, lexicon 0.4 -> spread 0.1.
-    result = combine_signals(
-        0.3,
-        ToneLabel.NEUTRAL,
-        _aggregate(0.35),
-        classifier_net=0.4,
-        lexicon_score=0.4,
-        lexicon_fired=True,
-    )
-    assert result.uncertainty == pytest.approx(0.1)
+    # All cross-checks point the same way as the headline, so no disagreement.
+    assert result.uncertainty == 0.0
     assert result.needs_review is False
 
 
 @pytest.mark.unit
-def test_combine_signals_wide_spread_flags_review() -> None:
-    # headline 0.8 vs structured 0.0 vs classifier 0.0 -> spread 0.8.
+def test_combine_signals_compressed_but_agreeing_net_is_not_disagreement() -> None:
+    # The structured net (0.11) is far below the headline (0.8) in magnitude but the SAME direction.
+    # A magnitude spread would call this disagreement; the scale-free direction test must not.
     result = combine_signals(
         0.8,
         ToneLabel.HAWKISH,
-        _aggregate(0.0),
-        classifier_net=0.0,
+        _aggregate(0.11),
+        classifier_net=0.16,
         lexicon_score=0.0,
         lexicon_fired=False,
     )
-    assert result.uncertainty == pytest.approx(0.8)
+    assert result.uncertainty == 0.0
+    assert result.needs_review is False
+
+
+@pytest.mark.unit
+def test_combine_signals_a_lone_dissenter_does_not_trip_review() -> None:
+    # headline H, structured H, classifier H, lexicon D: one of three cross-checks dissents.
+    result = combine_signals(
+        0.4,
+        ToneLabel.HAWKISH,
+        _aggregate(0.11),
+        classifier_net=0.16,
+        lexicon_score=-0.33,
+        lexicon_fired=True,
+    )
+    assert result.uncertainty == pytest.approx(1 / 3)
+    assert result.needs_review is False
+
+
+@pytest.mark.unit
+def test_combine_signals_a_majority_dissent_flags_review() -> None:
+    # headline H, but structured D and classifier D (2 of 3 oppose), lexicon H.
+    result = combine_signals(
+        0.4,
+        ToneLabel.HAWKISH,
+        _aggregate(-0.2),
+        classifier_net=-0.3,
+        lexicon_score=0.5,
+        lexicon_fired=True,
+    )
+    assert result.uncertainty == pytest.approx(2 / 3)
     assert result.needs_review is True
 
 
 @pytest.mark.unit
-def test_combine_signals_opposite_sign_flags_review_even_within_the_band() -> None:
-    # A small spread (0.2) but the headline and structured net disagree on direction.
+def test_combine_signals_excludes_the_classifier_when_it_does_not_apply() -> None:
+    # The classifier dissents (dovish) but does not apply (non-Fed), so it is dropped and the lone
+    # remaining cross-check (the structured net) agrees -> no disagreement.
     result = combine_signals(
-        0.1,
-        ToneLabel.NEUTRAL,
-        _aggregate(-0.1),
-        classifier_net=0.1,
+        0.4,
+        ToneLabel.HAWKISH,
+        _aggregate(0.2),
+        classifier_net=-0.9,
         lexicon_score=0.0,
         lexicon_fired=False,
+        classifier_applies=False,
     )
-    assert result.uncertainty == pytest.approx(0.2)
-    assert result.needs_review is True
+    assert result.uncertainty == 0.0
+    assert result.needs_review is False
+    # The same dissent, now applicable, splits the two cross-checks evenly and trips review.
+    applied = combine_signals(
+        0.4,
+        ToneLabel.HAWKISH,
+        _aggregate(0.2),
+        classifier_net=-0.9,
+        lexicon_score=0.0,
+        lexicon_fired=False,
+        classifier_applies=True,
+    )
+    assert applied.uncertainty == pytest.approx(0.5)
+    assert applied.needs_review is True
 
 
 @pytest.mark.unit
 def test_combine_signals_ignores_an_abstaining_lexicon() -> None:
-    # The lexicon score is extreme but it abstained, so it must not count toward the spread.
+    # The lexicon score is extreme and opposite, but it abstained, so it must not count.
     result = combine_signals(
         0.3,
-        ToneLabel.NEUTRAL,
+        ToneLabel.HAWKISH,
         _aggregate(0.3),
         classifier_net=0.3,
         lexicon_score=-1.0,
         lexicon_fired=False,
     )
-    assert result.uncertainty == pytest.approx(0.0)
+    assert result.uncertainty == 0.0
     assert result.needs_review is False
 
 
 @pytest.mark.unit
-def test_combine_signals_counts_a_fired_lexicon_toward_the_spread() -> None:
+def test_combine_signals_neutral_headline_is_contradicted_by_directional_checks() -> None:
+    # The headline is neutral but both cross-checks see a clear direction: that is disagreement.
     result = combine_signals(
-        0.3,
+        0.0,
         ToneLabel.NEUTRAL,
-        _aggregate(0.3),
-        classifier_net=0.3,
-        lexicon_score=0.9,
-        lexicon_fired=True,
+        _aggregate(0.5),
+        classifier_net=0.5,
+        lexicon_score=0.0,
+        lexicon_fired=False,
     )
-    assert result.uncertainty == pytest.approx(0.6)
+    assert result.uncertainty == 1.0
     assert result.needs_review is True

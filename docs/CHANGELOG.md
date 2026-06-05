@@ -31,9 +31,13 @@ All notable changes to this project are documented in this file. The format foll
   decomposition, a `rate_path` (forward-looking policy intent, separated from backward-looking
   description) and a per-aspect breakdown. Three independent signals (the structured net, the
   supervised classifier, the lexicon) are not averaged into the headline (`combine_signals`,
-  ADR 0008) but compared against it; their spread is an explicit uncertainty band that flags a speech
-  for review on a wide spread or an opposite-sign disagreement (an abstaining lexicon is excluded so
-  it cannot fake one). The cross-checks quantify when to distrust the headline, never replace it.
+  ADR 0008) but compared against it. The comparison is by direction, not magnitude: each signal is
+  reduced to hawkish/dovish/neutral and the uncertainty is the share of cross-checks that point the
+  opposite way to the headline, so the compressed structured-net scale is never mistaken for
+  disagreement and a single weak dissenter does not trip a review (a majority must). The FOMC-trained
+  classifier is a cross-check only for the Federal Reserve, where it is measured to be valid; it is
+  excluded for the other institutions, which it does not transfer to (ADR 0013). The cross-checks
+  quantify when to distrust the headline, never replace it.
 - Dashboard Policy Monitor, a macro-desk redesign of the landing page. The hero is now a sortable
   bank-by-bank matrix (current committee stance with a diverging move-track, 1-month and 3-month
   change, a 6-month inline sparkline, and the hawk/dove committee split), with server-rendered

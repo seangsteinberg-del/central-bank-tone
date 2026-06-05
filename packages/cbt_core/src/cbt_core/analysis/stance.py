@@ -29,7 +29,6 @@ or a GPU.
 
 from __future__ import annotations
 
-import itertools
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -44,10 +43,15 @@ from cbt_core.domain.tone import ToneLabel
 _DEFAULT_NEUTRAL_BAND = 0.05
 _DEFAULT_MIXED_MIN_SHARE = 0.25
 
-# A spread among the (fired) ensemble signals at least this large flags a speech for review, as does
-# any opposite-sign disagreement. Matches the lexicon cross-check threshold (ADR 0008): a large
-# disagreement is surfaced as uncertainty, not averaged away.
-_DEFAULT_REVIEW_THRESHOLD = 0.5
+# The cross-check agreement vote is scale-free: a signal counts as hawkish, dovish, or neutral by
+# its SIGN past this small band, not by its magnitude. The structured net is on a compressed scale
+# (it divides by all relevant sentences, neutrals included), so comparing raw magnitudes would read
+# a scale difference as disagreement; comparing direction does not.
+_DEFAULT_DIRECTION_BAND = 0.05
+# A speech is flagged for review when at least this fraction of the independent cross-checks point
+# the opposite way to the headline. A majority default means a single weak dissenter (often the
+# lexicon) does not trip a review on its own.
+_DEFAULT_REVIEW_FRACTION = 0.5
 
 _SENTENCE_RE = re.compile(r"[^.!?]+[.!?]?")
 _WORD_RE = re.compile(r"[a-z']+")
@@ -521,10 +525,11 @@ class StanceAssessment:
         structured_net: The structured sentence-level net-hawkishness cross-check.
         classifier_net: The supervised classifier's net-hawkishness cross-check over the sentences.
         lexicon_score: The deterministic lexicon's net-hawkishness cross-check.
-        uncertainty: The spread (max minus min) among the headline and the fired cross-checks, in
-            ``[0.0, 2.0]``.
-        needs_review: Whether the signals disagree enough to warrant review (a spread at or above
-            the threshold, or any opposite-sign disagreement).
+        uncertainty: The share of applicable cross-checks that point the opposite way to the
+            headline, in ``[0.0, 1.0]`` (a scale-free directional disagreement, not a magnitude
+            spread). Higher means fewer independent methods confirm the headline's direction.
+        needs_review: Whether at least a majority of the cross-checks contradict the headline's
+            direction (so a single weak dissenter does not trip it).
     """
 
     score: float
@@ -538,6 +543,15 @@ class StanceAssessment:
     needs_review: bool
 
 
+def _direction(score: float, band: float) -> int:
+    """The sign of a score past a neutral band: ``+1`` hawkish, ``-1`` dovish, ``0`` neutral."""
+    if score > band:
+        return 1
+    if score < -band:
+        return -1
+    return 0
+
+
 def combine_signals(
     headline_score: float,
     headline_tone: ToneLabel,
@@ -546,13 +560,23 @@ def combine_signals(
     lexicon_score: float,
     *,
     lexicon_fired: bool,
-    review_threshold: float = _DEFAULT_REVIEW_THRESHOLD,
+    classifier_applies: bool = True,
+    direction_band: float = _DEFAULT_DIRECTION_BAND,
+    review_fraction: float = _DEFAULT_REVIEW_FRACTION,
 ) -> StanceAssessment:
     """Combine the holistic headline with the structured, classifier, and lexicon cross-checks.
 
     The holistic score is the headline (ADR 0021); the structured net, the classifier, and the
-    lexicon are not averaged into it (ADR 0008) but compared against it to quantify uncertainty. The
-    lexicon is included only when it fired, since an abstention is not a disagreement.
+    lexicon are not averaged into it (ADR 0008) but compared against it to quantify uncertainty.
+
+    The comparison is by **direction**, not magnitude, and that is deliberate. The structured net is
+    on a compressed scale (it divides by all relevant sentences), so a magnitude spread would read a
+    scale difference as disagreement even when every signal agrees on the sign. Instead each signal
+    is reduced to hawkish/dovish/neutral, and the uncertainty is the share of cross-checks that point
+    the *opposite* way to the headline (a neutral cross-check neither confirms nor contradicts, so
+    the compressed structured net is never penalised). The lexicon is included only when it fired,
+    and the classifier only when it applies to this institution (it is FOMC-trained and does not
+    transfer out of distribution, so the caller excludes it for non-Fed banks).
 
     Args:
         headline_score: The model's holistic net-hawkishness for the whole speech (the headline).
@@ -561,18 +585,32 @@ def combine_signals(
         classifier_net: The supervised classifier's net-hawkishness over the same sentences.
         lexicon_score: The deterministic lexicon's net-hawkishness for the speech.
         lexicon_fired: Whether the lexicon matched any term (so its score carries signal).
-        review_threshold: The minimum spread that flags the speech for review.
+        classifier_applies: Whether the supervised classifier is valid for this institution.
+        direction_band: The band within which a signal counts as neutral rather than directional.
+        review_fraction: The fraction of contradicting cross-checks that flags a review.
 
     Returns:
         The :class:`StanceAssessment` carrying the headline, the rate-path, the cross-checks, the
-        spread, and the review flag.
+        directional uncertainty, and the review flag.
     """
-    signals = [headline_score, aggregate.net_hawkishness, classifier_net]
+    cross_checks = [aggregate.net_hawkishness]
+    if classifier_applies:
+        cross_checks.append(classifier_net)
     if lexicon_fired:
-        signals.append(lexicon_score)
-    spread = max(signals) - min(signals)
-    opposite_sign = any(a * b < 0 for a, b in itertools.combinations(signals, 2))
-    needs_review = spread >= review_threshold or opposite_sign
+        cross_checks.append(lexicon_score)
+
+    headline_dir = _direction(headline_score, direction_band)
+    if headline_dir == 0:
+        # A neutral headline: a cross-check that sees a clear direction is the disagreement.
+        contradicting = sum(1 for s in cross_checks if _direction(s, direction_band) != 0)
+    else:
+        # A directional headline: only an opposite sign contradicts (a neutral cross-check neither
+        # confirms nor contradicts, so the compressed structured net is not penalised).
+        contradicting = sum(
+            1 for s in cross_checks if _direction(s, direction_band) == -headline_dir
+        )
+    uncertainty = contradicting / len(cross_checks)
+    needs_review = uncertainty >= review_fraction
     return StanceAssessment(
         score=headline_score,
         tone=headline_tone,
@@ -581,6 +619,6 @@ def combine_signals(
         structured_net=aggregate.net_hawkishness,
         classifier_net=classifier_net,
         lexicon_score=lexicon_score,
-        uncertainty=spread,
+        uncertainty=uncertainty,
         needs_review=needs_review,
     )

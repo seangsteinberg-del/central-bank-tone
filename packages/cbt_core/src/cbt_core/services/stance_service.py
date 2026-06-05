@@ -15,7 +15,6 @@ lexicon are independent local cross-checks (they run with no network), not a fal
 from __future__ import annotations
 
 from cbt_core.analysis import (
-    DISAGREEMENT_THRESHOLD,
     ClassifiedSentence,
     HawkishDovishLexicon,
     PolicyRelevanceFilter,
@@ -26,12 +25,19 @@ from cbt_core.analysis import (
     combine_signals,
     split_sentences,
 )
+from cbt_core.domain.registry import CentralBank
 from cbt_core.domain.tone import ToneLabel
 from cbt_core.llm.client import LlmClient
 
+# The supervised classifier is trained on the FOMC benchmark and measured not to transfer out of
+# distribution (ADR 0013; 59.9% on FOMC vs 32.1% on op-fed). It is therefore only a valid cross-check
+# for the institution it was trained on; for every other bank it would inject noise and inflate the
+# uncertainty band, so it is excluded from their ensemble.
+CLASSIFIER_VALID_BANKS: frozenset[CentralBank] = frozenset({CentralBank.FEDERAL_RESERVE})
+
 
 class StanceService:
-    """Assess a speech's tone with the structured pipeline and two independent cross-checks."""
+    """Assess a speech's tone with the structured pipeline and independent cross-checks."""
 
     def __init__(
         self,
@@ -40,7 +46,6 @@ class StanceService:
         classifier: ToneClassifier | None = None,
         lexicon: HawkishDovishLexicon | None = None,
         relevance_filter: PolicyRelevanceFilter | None = None,
-        review_threshold: float = DISAGREEMENT_THRESHOLD,
     ) -> None:
         """Build the service.
 
@@ -50,35 +55,41 @@ class StanceService:
                 supplied.
             lexicon: The deterministic lexicon cross-check; a default one is used if not supplied.
             relevance_filter: The policy-relevance filter; a default one is used if not supplied.
-            review_threshold: The minimum spread among the signals that flags a speech for review.
         """
         self._llm = llm_client
         self._classifier = classifier if classifier is not None else ToneClassifier.load_default()
         self._lexicon = lexicon if lexicon is not None else HawkishDovishLexicon()
         self._filter = relevance_filter if relevance_filter is not None else PolicyRelevanceFilter()
-        self._review_threshold = review_threshold
 
     def assess(
-        self, text: str, *, headline_score: float, headline_tone: ToneLabel
+        self,
+        text: str,
+        *,
+        headline_score: float,
+        headline_tone: ToneLabel,
+        central_bank: CentralBank,
     ) -> StanceAssessment:
         """Decompose and cross-check a speech around its holistic headline score.
 
         The caller supplies the headline (the model's holistic whole-speech judgement, the dynamic
         index a macro reader tracks). This service runs the structured sentence-level pipeline to
-        add the rate-path and per-aspect decomposition, and cross-checks the headline against the
-        structured net, the supervised classifier, and the lexicon, reporting their spread as an
-        uncertainty band. The headline is never overwritten by the cross-checks (ADR 0008).
+        add the rate-path and per-aspect decomposition, and cross-checks the headline by direction
+        against the structured net, the supervised classifier (only where it is valid), and the
+        lexicon, reporting the share that disagree as an uncertainty band. The headline is never
+        overwritten by the cross-checks (ADR 0008).
 
         Args:
             text: The full speech text.
             headline_score: The model's holistic net-hawkishness for the speech (the headline).
             headline_tone: The model's holistic discrete tone (the headline).
+            central_bank: The institution; decides whether the FOMC-trained classifier is a valid
+                cross-check for this speech.
 
         Returns:
             The :class:`~cbt_core.analysis.StanceAssessment`: the headline, the rate-path (forward)
-            measure, the per-aspect breakdown, the three cross-checks, the uncertainty spread, and
-            the review flag. With no policy-relevant sentence the structured part is an honest
-            abstention but the headline is preserved.
+            measure, the per-aspect breakdown, the cross-checks, the directional uncertainty, and the
+            review flag. With no policy-relevant sentence the structured part is an honest abstention
+            but the headline is preserved.
         """
         sentences = split_sentences(text)
         relevant = self._filter.filter(sentences)
@@ -102,5 +113,5 @@ class StanceService:
             classifier_aggregate.net_hawkishness,
             lexicon_result.score,
             lexicon_fired=lexicon_result.fired,
-            review_threshold=self._review_threshold,
+            classifier_applies=central_bank in CLASSIFIER_VALID_BANKS,
         )
