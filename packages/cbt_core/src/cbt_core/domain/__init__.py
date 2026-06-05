@@ -11,7 +11,7 @@ from cbt_core.domain.committee import CommitteeMovement, MemberMovement
 from cbt_core.domain.models import Speaker, ToneObservation
 from cbt_core.domain.qa import Answer, Citation, RetrievedChunk
 from cbt_core.domain.registry import CentralBank
-from cbt_core.domain.speech import Speech
+from cbt_core.domain.speech import Speech, SpeechStance
 from cbt_core.domain.tone import ToneLabel
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "RetrievedChunk",
     "Speaker",
     "Speech",
+    "SpeechStance",
     "ToneAnalysis",
     "ToneLabel",
     "ToneObservation",

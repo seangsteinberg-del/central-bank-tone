@@ -32,6 +32,7 @@ from cbt_core.domain import (
     RetrievedChunk,
     Speaker,
     Speech,
+    SpeechStance,
     ToneAnalysis,
     ToneLabel,
     ToneObservation,
@@ -75,6 +76,7 @@ from cbt_core.services import (
     SpeakerService,
     StanceService,
     ToneService,
+    build_stance,
 )
 from cbt_core.settings import Environment, Settings, get_settings
 
@@ -114,6 +116,7 @@ __all__ = [
     "SpeakerService",
     "Speech",
     "SpeechRetriever",
+    "SpeechStance",
     "StanceAggregate",
     "StanceAssessment",
     "StanceLabel",
@@ -127,6 +130,7 @@ __all__ = [
     "aggregate_stances",
     "bind_request_context",
     "build_gemini_client",
+    "build_stance",
     "chunk_text",
     "clear_request_context",
     "configure_logging",

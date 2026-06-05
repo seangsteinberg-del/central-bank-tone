@@ -23,10 +23,11 @@ from cbt_core.logging import get_logger
 from cbt_core.persistence.repositories import (
     SpeakerRepository,
     SpeechRepository,
+    SpeechStanceRepository,
     ToneObservationRepository,
 )
 from cbt_core.services._support import IdFactory, default_id_factory
-from cbt_core.services.stance_service import StanceService
+from cbt_core.services.stance_service import StanceService, build_stance
 
 _logger = get_logger(__name__)
 
@@ -131,9 +132,6 @@ class IngestionService:
             central_bank=speaker.central_bank,
         )
         needs_review = assessment.needs_review
-        aspect_scores = {
-            aspect.value: net for aspect, net in assessment.aggregate.by_aspect.items()
-        }
         if needs_review:
             log.warning(
                 "tone_cross_check_disagreement",
@@ -143,8 +141,9 @@ class IngestionService:
                 lexicon_score=assessment.lexicon_score,
                 uncertainty=assessment.uncertainty,
             )
+        speech_id = self._id_factory()
         speech = Speech(
-            id=self._id_factory(),
+            id=speech_id,
             speaker_id=speaker_id,
             central_bank=speaker.central_bank,
             title=title,
@@ -159,11 +158,9 @@ class IngestionService:
             lexicon_score=assessment.lexicon_score,
             rationale=analysis.rationale,
             needs_review=needs_review,
-            rate_path=assessment.rate_path,
-            uncertainty=assessment.uncertainty,
-            aspect_scores=aspect_scores,
             model_id=self._model_id,
         )
+        stance = build_stance(speech_id, assessment, model_id=self._model_id)
         observation = ToneObservation(
             id=self._id_factory(),
             speaker_id=speaker_id,
@@ -175,9 +172,10 @@ class IngestionService:
             needs_review=needs_review,
         )
 
-        # Phase 3: persist the speech and its tone signal atomically.
+        # Phase 3: persist the speech, its derived stance decomposition, and its tone signal.
         with self._session_factory() as session:
             SpeechRepository(session).add(speech)
+            SpeechStanceRepository(session).upsert(stance)
             ToneObservationRepository(session).append(observation)
             session.commit()
 

@@ -10,8 +10,13 @@ from __future__ import annotations
 from datetime import UTC
 
 from cbt_core.domain.models import Speaker, ToneObservation
-from cbt_core.domain.speech import Speech
-from cbt_core.persistence.rows import SpeakerRow, SpeechRow, ToneObservationRow
+from cbt_core.domain.speech import Speech, SpeechStance
+from cbt_core.persistence.rows import (
+    SpeakerRow,
+    SpeechRow,
+    SpeechStanceRow,
+    ToneObservationRow,
+)
 
 
 def speaker_to_row(speaker: Speaker) -> SpeakerRow:
@@ -89,9 +94,6 @@ def speech_to_row(speech: Speech) -> SpeechRow:
         lexicon_score=speech.lexicon_score,
         rationale=speech.rationale,
         needs_review=speech.needs_review,
-        rate_path=speech.rate_path,
-        uncertainty=speech.uncertainty,
-        aspect_scores=speech.aspect_scores,
         model_id=speech.model_id,
     )
 
@@ -121,8 +123,35 @@ def row_to_speech(row: SpeechRow) -> Speech:
         lexicon_score=row.lexicon_score,
         rationale=row.rationale,
         needs_review=row.needs_review,
+        model_id=row.model_id,
+    )
+
+
+def stance_to_row(stance: SpeechStance) -> SpeechStanceRow:
+    """Build a :class:`SpeechStanceRow` from a :class:`SpeechStance`."""
+    return SpeechStanceRow(
+        speech_id=stance.speech_id,
+        rate_path=stance.rate_path,
+        uncertainty=stance.uncertainty,
+        structured_net=stance.structured_net,
+        classifier_net=stance.classifier_net,
+        lexicon_net=stance.lexicon_net,
+        needs_review=stance.needs_review,
+        aspect_scores=stance.aspect_scores,
+        model_id=stance.model_id,
+    )
+
+
+def row_to_stance(row: SpeechStanceRow) -> SpeechStance:
+    """Build a :class:`SpeechStance` from a :class:`SpeechStanceRow`."""
+    return SpeechStance(
+        speech_id=row.speech_id,
         rate_path=row.rate_path,
         uncertainty=row.uncertainty,
+        structured_net=row.structured_net,
+        classifier_net=row.classifier_net,
+        lexicon_net=row.lexicon_net,
+        needs_review=row.needs_review,
         aspect_scores=row.aspect_scores,
         model_id=row.model_id,
     )

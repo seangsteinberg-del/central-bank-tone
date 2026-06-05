@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import pytest
 from tests._stubs import StubLlmClient
 
-from cbt_core import IngestionService, SpeakerService, ToneAnalysis, ToneService
+from cbt_core import IngestionService, SpeakerService, SpeechStance, ToneAnalysis, ToneService
 from cbt_core.domain.registry import CentralBank
 from cbt_core.exceptions import EntityNotFoundError
+from cbt_core.persistence.repositories import SpeechStanceRepository
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session, sessionmaker
 
 _HAWKISH_TEXT = "The committee will tighten policy and hike rates given inflationary pressure."
 
@@ -50,18 +55,56 @@ def test_ingest_persists_model_tone_and_lexicon_baseline(
 
 @pytest.mark.unit
 def test_ingest_persists_the_structured_pipeline_fields(
-    ingestion_service: IngestionService, speaker_service: SpeakerService
+    ingestion_service: IngestionService,
+    speaker_service: SpeakerService,
+    session_factory: sessionmaker[Session],
 ) -> None:
-    # The structured pipeline (ADR 0021) runs on every ingest and persists its decomposition.
+    # The structured pipeline (ADR 0021) runs on every ingest and persists its decomposition into
+    # the derived speech_stance table, not onto the immutable speech.
     speaker_id = _register(speaker_service)
     speech = _ingest(ingestion_service, speaker_id, text=_HAWKISH_TEXT)
-    assert speech.rate_path is not None
-    assert -1.0 <= speech.rate_path <= 1.0
-    assert speech.uncertainty is not None
-    assert 0.0 <= speech.uncertainty <= 1.0
-    assert speech.aspect_scores is not None
+    with session_factory() as session:
+        stance = SpeechStanceRepository(session).get(speech.id)
+    assert stance is not None
+    assert -1.0 <= stance.rate_path <= 1.0
+    assert 0.0 <= stance.uncertainty <= 1.0
     # The hawkish source is about inflation, so that aspect appears in the breakdown.
-    assert "inflation" in speech.aspect_scores
+    assert "inflation" in stance.aspect_scores
+
+
+@pytest.mark.unit
+def test_speech_stance_repository_get_replace_and_list(
+    ingestion_service: IngestionService,
+    speaker_service: SpeakerService,
+    session_factory: sessionmaker[Session],
+) -> None:
+    speaker_id = _register(speaker_service)
+    speech = _ingest(ingestion_service, speaker_id)
+    with session_factory() as session:
+        repo = SpeechStanceRepository(session)
+        assert repo.get(speech.id) is not None
+        assert repo.get(UUID(int=999)) is None  # an unscored speech has no decomposition
+        assert set(repo.all_by_speech()) == {speech.id}
+        # Re-derivation replaces the existing row (the decomposition is recomputable, not appended).
+        repo.upsert(
+            SpeechStance(
+                speech_id=speech.id,
+                rate_path=-0.2,
+                uncertainty=0.5,
+                structured_net=-0.1,
+                classifier_net=0.0,
+                lexicon_net=0.0,
+                needs_review=True,
+                aspect_scores={"growth": -0.2},
+                model_id="re-scored",
+            )
+        )
+        session.commit()
+    with session_factory() as session:
+        replaced = SpeechStanceRepository(session).get(speech.id)
+    assert replaced is not None
+    assert replaced.rate_path == -0.2
+    assert replaced.needs_review is True
 
 
 @pytest.mark.unit

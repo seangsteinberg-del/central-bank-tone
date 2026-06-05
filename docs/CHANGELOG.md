@@ -8,12 +8,15 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Added
 - Ingestion runs the structured stance pipeline on every speech and persists its decomposition
-  (ADR 0021): `speech.rate_path` (forward-looking policy intent), `speech.uncertainty` (the share of
-  cross-checks that disagree with the headline's direction), and `speech.aspect_scores` (per-aspect
-  net-hawkishness, a JSON map). Migration 0006 adds the three nullable columns with range checks; a
-  speech scored before the pipeline existed keeps a null detail until it is re-scored. `needs_review`
-  now reflects the directional ensemble (the headline cross-checked against the structured net, the
-  Fed-only classifier, and the lexicon) rather than the lexicon-only check.
+  (ADR 0021) into a new derived `speech_stance` table (migration 0006): the forward-looking
+  `rate_path` (policy intent), the directional `uncertainty` (the share of cross-checks that disagree
+  with the headline), the three cross-check nets, the directional `needs_review`, and the per-aspect
+  net-hawkishness map. The decomposition is recomputable from the speech text, so like the retrieval
+  chunks it lives in its own non-append-only table (`SpeechStance` domain model,
+  `SpeechStanceRepository.upsert`/`get`/`all_by_speech`) rather than on the immutable speech row, and
+  can be re-derived for any speech as the method improves without touching the append-only tone
+  record. The holistic Gemini score stays the headline; the structured pipeline supplies the
+  decomposition and the directional cross-check.
 - Production-signal validation against real rates (`scripts/eval_corpus_vs_rates.py`, ADR 0021): a
   reproducible, keyless test of the platform's own headline tone. It builds a monthly Federal Reserve
   tone index from the stored Gemini holistic scores and correlates it with FRED's effective fed funds

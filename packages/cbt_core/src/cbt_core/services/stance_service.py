@@ -14,6 +14,8 @@ lexicon are independent local cross-checks (they run with no network), not a fal
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from cbt_core.analysis import (
     ClassifiedSentence,
     HawkishDovishLexicon,
@@ -26,8 +28,38 @@ from cbt_core.analysis import (
     split_sentences,
 )
 from cbt_core.domain.registry import CentralBank
+from cbt_core.domain.speech import SpeechStance
 from cbt_core.domain.tone import ToneLabel
 from cbt_core.llm.client import LlmClient
+
+
+def build_stance(
+    speech_id: UUID, assessment: StanceAssessment, *, model_id: str = "unknown"
+) -> SpeechStance:
+    """Build the derived :class:`~cbt_core.domain.speech.SpeechStance` from a stance assessment.
+
+    Shared by ingestion and the re-score path so the persisted decomposition is constructed one way.
+
+    Args:
+        speech_id: The speech the decomposition belongs to.
+        assessment: The ensemble assessment to persist.
+        model_id: The model that produced the sentence classification.
+
+    Returns:
+        The :class:`~cbt_core.domain.speech.SpeechStance` ready to upsert.
+    """
+    return SpeechStance(
+        speech_id=speech_id,
+        rate_path=assessment.rate_path,
+        uncertainty=assessment.uncertainty,
+        structured_net=assessment.structured_net,
+        classifier_net=assessment.classifier_net,
+        lexicon_net=assessment.lexicon_score,
+        needs_review=assessment.needs_review,
+        aspect_scores={aspect.value: net for aspect, net in assessment.aggregate.by_aspect.items()},
+        model_id=model_id,
+    )
+
 
 # The supervised classifier is trained on the FOMC benchmark and measured not to transfer out of
 # distribution (ADR 0013; 59.9% on FOMC vs 32.1% on op-fed). It is therefore only a valid cross-check

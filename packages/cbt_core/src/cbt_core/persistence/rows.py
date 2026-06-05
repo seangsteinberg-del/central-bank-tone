@@ -112,12 +112,6 @@ class SpeechRow(Base):
     lexicon_score: Mapped[float] = mapped_column(Float, nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Structured-pipeline fields (ADR 0021), nullable because speeches scored before it existed do
-    # not have them. rate_path is the forward-looking net-hawkishness, uncertainty the share of
-    # cross-checks disagreeing with the headline, aspect_scores the per-aspect net (a JSON map).
-    rate_path: Mapped[float | None] = mapped_column(Float, nullable=True)
-    uncertainty: Mapped[float | None] = mapped_column(Float, nullable=True)
-    aspect_scores: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
     model_id: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")
 
     __table_args__ = (
@@ -126,15 +120,36 @@ class SpeechRow(Base):
         CheckConstraint(
             "lexicon_score >= -1.0 AND lexicon_score <= 1.0", name="lexicon_score_in_range"
         ),
-        CheckConstraint(
-            "rate_path IS NULL OR (rate_path >= -1.0 AND rate_path <= 1.0)",
-            name="rate_path_in_range",
-        ),
-        CheckConstraint(
-            "uncertainty IS NULL OR (uncertainty >= 0.0 AND uncertainty <= 1.0)",
-            name="uncertainty_in_range",
-        ),
         CheckConstraint("length(source_sha256) = 64", name="sha256_length"),
+    )
+
+
+class SpeechStanceRow(Base):
+    """ORM row for a speech's structured stance decomposition (ADR 0021).
+
+    Derived, recomputable data (one row per speech), like :class:`SpeechChunkRow`: it is computed
+    from the immutable speech text and may be recomputed as the pipeline improves, so this table is
+    deliberately NOT append-only. ``CASCADE`` on the foreign key because the decomposition's lifetime
+    is owned entirely by its speech.
+    """
+
+    __tablename__ = "speech_stance"
+
+    speech_id: Mapped[UUID] = mapped_column(
+        ForeignKey("speech.id", ondelete="CASCADE"), primary_key=True
+    )
+    rate_path: Mapped[float] = mapped_column(Float, nullable=False)
+    uncertainty: Mapped[float] = mapped_column(Float, nullable=False)
+    structured_net: Mapped[float] = mapped_column(Float, nullable=False)
+    classifier_net: Mapped[float] = mapped_column(Float, nullable=False)
+    lexicon_net: Mapped[float] = mapped_column(Float, nullable=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    aspect_scores: Mapped[dict[str, float]] = mapped_column(JSON, nullable=False)
+    model_id: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")
+
+    __table_args__ = (
+        CheckConstraint("rate_path >= -1.0 AND rate_path <= 1.0", name="rate_path_in_range"),
+        CheckConstraint("uncertainty >= 0.0 AND uncertainty <= 1.0", name="uncertainty_in_range"),
     )
 
 

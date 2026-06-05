@@ -1,4 +1,4 @@
-"""add the structured-pipeline fields to speech (rate_path, uncertainty, aspect_scores)
+"""add the derived speech_stance table (structured-pipeline decomposition, ADR 0021)
 
 Revision ID: 0006
 Revises: 0005
@@ -19,27 +19,33 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # The structured stance pipeline (ADR 0021) adds a forward-looking rate-path measure, a
-    # directional uncertainty band, and a per-aspect net-hawkishness map. All are nullable: a speech
-    # scored before the pipeline existed simply has no structured detail until it is re-scored.
-    op.add_column("speech", sa.Column("rate_path", sa.Float(), nullable=True))
-    op.add_column("speech", sa.Column("uncertainty", sa.Float(), nullable=True))
-    op.add_column("speech", sa.Column("aspect_scores", sa.JSON(), nullable=True))
-    op.create_check_constraint(
-        "rate_path_in_range",
-        "speech",
-        "rate_path IS NULL OR (rate_path >= -1.0 AND rate_path <= 1.0)",
-    )
-    op.create_check_constraint(
-        "uncertainty_in_range",
-        "speech",
-        "uncertainty IS NULL OR (uncertainty >= 0.0 AND uncertainty <= 1.0)",
+    # The structured stance decomposition (ADR 0021) is derived, recomputable data, like the speech
+    # chunks: a forward-looking rate-path measure, a directional uncertainty band, the per-aspect net
+    # map, and the three cross-check nets. It lives in its own table, NOT on the append-only speech
+    # row, so it can be (re)computed for any speech as the method improves without touching the
+    # immutable tone record. One row per speech; the row's presence means the speech has been scored.
+    op.create_table(
+        "speech_stance",
+        sa.Column(
+            "speech_id",
+            sa.Uuid(),
+            sa.ForeignKey("speech.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+        sa.Column("rate_path", sa.Float(), nullable=False),
+        sa.Column("uncertainty", sa.Float(), nullable=False),
+        sa.Column("structured_net", sa.Float(), nullable=False),
+        sa.Column("classifier_net", sa.Float(), nullable=False),
+        sa.Column("lexicon_net", sa.Float(), nullable=False),
+        sa.Column("needs_review", sa.Boolean(), nullable=False),
+        sa.Column("aspect_scores", sa.JSON(), nullable=False),
+        sa.Column("model_id", sa.String(length=100), nullable=False, server_default="unknown"),
+        sa.CheckConstraint("rate_path >= -1.0 AND rate_path <= 1.0", name="rate_path_in_range"),
+        sa.CheckConstraint(
+            "uncertainty >= 0.0 AND uncertainty <= 1.0", name="uncertainty_in_range"
+        ),
     )
 
 
 def downgrade() -> None:
-    op.drop_constraint("uncertainty_in_range", "speech", type_="check")
-    op.drop_constraint("rate_path_in_range", "speech", type_="check")
-    op.drop_column("speech", "aspect_scores")
-    op.drop_column("speech", "uncertainty")
-    op.drop_column("speech", "rate_path")
+    op.drop_table("speech_stance")

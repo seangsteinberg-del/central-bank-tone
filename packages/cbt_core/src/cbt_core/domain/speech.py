@@ -38,18 +38,10 @@ class Speech(BaseModel):
             hawkish).
         lexicon_score: The deterministic lexicon baseline tone in ``[-1.0, 1.0]``.
         rationale: The model's one-line justification for the tone.
-        needs_review: True when the headline tone and the independent cross-checks disagreed
-            enough to flag for review (ADR 0008, ADR 0021): a majority of the cross-checks point
-            the opposite way to the headline.
-        rate_path: The forward-looking net-hawkishness (policy intent, separated from
-            backward-looking description) from the structured pipeline (ADR 0021), in
-            ``[-1.0, 1.0]``. ``None`` for a speech scored before the structured pipeline existed.
-        uncertainty: The share of applicable cross-checks that disagree with the headline's
-            direction (ADR 0021), in ``[0.0, 1.0]``. ``None`` when the structured pipeline has not
-            been run for this speech.
-        aspect_scores: The net-hawkishness within each policy aspect that appeared (inflation,
-            growth, employment, balance sheet, financial stability, guidance), keyed by the aspect
-            name. ``None`` when the structured pipeline has not been run for this speech.
+        needs_review: True when the headline tone and the lexicon baseline disagreed enough at
+            ingestion to flag for review (ADR 0008). The richer directional review signal from the
+            structured ensemble (ADR 0021) lives on the derived :class:`SpeechStance`, which can be
+            recomputed; this field is the immutable ingestion-time flag.
         model_id: The model that produced the analysis (for example ``gemini-2.5-flash``),
             recorded so the tone series stays comparable as the model changes over time.
     """
@@ -71,9 +63,6 @@ class Speech(BaseModel):
     lexicon_score: float = Field(ge=-1.0, le=1.0)
     rationale: str = Field(min_length=1, max_length=2000)
     needs_review: bool = False
-    rate_path: float | None = Field(default=None, ge=-1.0, le=1.0)
-    uncertainty: float | None = Field(default=None, ge=0.0, le=1.0)
-    aspect_scores: dict[str, float] | None = None
     model_id: str = Field(default="unknown", min_length=1, max_length=100)
 
     @field_validator("delivered_at")
@@ -87,3 +76,41 @@ class Speech(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("delivered_at must be timezone-aware")
         return value
+
+
+class SpeechStance(BaseModel):
+    """The structured stance decomposition of a speech (ADR 0021): derived, recomputable data.
+
+    Kept separate from the immutable :class:`Speech` because it is derived from the speech text and
+    can be recomputed as the pipeline improves, exactly like the retrieval chunks, without touching
+    the append-only tone record. The holistic headline (``Speech.score`` and ``Speech.tone``) stays
+    the production tone; this carries the decomposition a macro reader uses and the directional
+    cross-check.
+
+    Attributes:
+        speech_id: The speech this decomposition belongs to (the primary key, one row per speech).
+        rate_path: The forward-looking net-hawkishness (policy intent, separated from
+            backward-looking description), in ``[-1.0, 1.0]``.
+        uncertainty: The share of applicable cross-checks that disagree with the headline's
+            direction, in ``[0.0, 1.0]``.
+        structured_net: The structured sentence-level net-hawkishness cross-check.
+        classifier_net: The supervised classifier's net-hawkishness cross-check (zero where the
+            classifier does not apply to the institution).
+        lexicon_net: The deterministic lexicon's net-hawkishness cross-check.
+        needs_review: Whether a majority of the applicable cross-checks contradict the headline.
+        aspect_scores: The net-hawkishness within each policy aspect that appeared, keyed by aspect
+            name (inflation, growth, employment, balance sheet, financial stability, guidance).
+        model_id: The model that produced the sentence classification, recorded for comparability.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    speech_id: UUID
+    rate_path: float = Field(ge=-1.0, le=1.0)
+    uncertainty: float = Field(ge=0.0, le=1.0)
+    structured_net: float = Field(ge=-1.0, le=1.0)
+    classifier_net: float = Field(ge=-1.0, le=1.0)
+    lexicon_net: float = Field(ge=-1.0, le=1.0)
+    needs_review: bool
+    aspect_scores: dict[str, float]
+    model_id: str = Field(default="unknown", min_length=1, max_length=100)

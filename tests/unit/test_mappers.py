@@ -9,15 +9,17 @@ import pytest
 
 from cbt_core.domain.models import Speaker, ToneObservation
 from cbt_core.domain.registry import CentralBank
-from cbt_core.domain.speech import Speech
+from cbt_core.domain.speech import Speech, SpeechStance
 from cbt_core.domain.tone import ToneLabel
 from cbt_core.persistence.mappers import (
     observation_to_row,
     row_to_observation,
     row_to_speaker,
     row_to_speech,
+    row_to_stance,
     speaker_to_row,
     speech_to_row,
+    stance_to_row,
 )
 from cbt_core.persistence.rows import ToneObservationRow
 
@@ -84,3 +86,19 @@ def test_speech_round_trips_through_a_row() -> None:
         rationale="Balanced remarks.",
     )
     assert row_to_speech(speech_to_row(speech)) == speech
+
+
+@pytest.mark.unit
+def test_speech_stance_round_trips_through_a_row() -> None:
+    stance = SpeechStance(
+        speech_id=UUID(int=5),
+        rate_path=0.4,
+        uncertainty=0.33,
+        structured_net=0.2,
+        classifier_net=0.1,
+        lexicon_net=-0.5,
+        needs_review=True,
+        aspect_scores={"inflation": 0.5, "growth": -0.3},
+        model_id="gemini-test",
+    )
+    assert row_to_stance(stance_to_row(stance)) == stance

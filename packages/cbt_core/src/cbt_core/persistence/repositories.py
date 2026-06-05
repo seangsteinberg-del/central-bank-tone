@@ -15,20 +15,23 @@ from sqlalchemy.orm import Session, sessionmaker
 from cbt_core.domain.models import Speaker, ToneObservation
 from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.domain.registry import CentralBank
-from cbt_core.domain.speech import Speech
+from cbt_core.domain.speech import Speech, SpeechStance
 from cbt_core.exceptions import EntityNotFoundError
 from cbt_core.persistence.mappers import (
     observation_to_row,
     row_to_observation,
     row_to_speaker,
     row_to_speech,
+    row_to_stance,
     speaker_to_row,
     speech_to_row,
+    stance_to_row,
 )
 from cbt_core.persistence.rows import (
     SpeakerRow,
     SpeechChunkRow,
     SpeechRow,
+    SpeechStanceRow,
     ToneObservationRow,
 )
 
@@ -154,6 +157,51 @@ class SpeechRepository:
         )
         rows = self._session.scalars(statement).all()
         return [row_to_speech(row) for row in rows]
+
+
+class SpeechStanceRepository:
+    """Stores and retrieves the derived :class:`SpeechStance` decomposition (one per speech).
+
+    Unlike the speech and tone-observation aggregates this is not append-only: the decomposition is
+    recomputable from the speech text, so it is upserted (replaced) rather than only appended.
+    """
+
+    def __init__(self, session: Session) -> None:
+        """Bind the repository to a session.
+
+        Args:
+            session: The active SQLAlchemy session. The caller owns its lifecycle.
+        """
+        self._session = session
+
+    def upsert(self, stance: SpeechStance) -> None:
+        """Insert the decomposition for a speech, or replace it if one already exists.
+
+        Args:
+            stance: The decomposition to store. The caller commits.
+        """
+        existing = self._session.get(SpeechStanceRow, stance.speech_id)
+        if existing is not None:
+            self._session.delete(existing)
+            self._session.flush()
+        self._session.add(stance_to_row(stance))
+
+    def get(self, speech_id: UUID) -> SpeechStance | None:
+        """Return a speech's decomposition, or ``None`` if it has not been scored yet.
+
+        Args:
+            speech_id: The speech to look up.
+
+        Returns:
+            The :class:`SpeechStance`, or ``None`` when absent.
+        """
+        row = self._session.get(SpeechStanceRow, speech_id)
+        return row_to_stance(row) if row is not None else None
+
+    def all_by_speech(self) -> dict[UUID, SpeechStance]:
+        """Return every stored decomposition, keyed by speech id (for read models)."""
+        rows = self._session.scalars(select(SpeechStanceRow)).all()
+        return {row.speech_id: row_to_stance(row) for row in rows}
 
 
 class SpeechChunkRepository:
