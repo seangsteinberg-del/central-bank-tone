@@ -24,14 +24,16 @@ All notable changes to this project are documented in this file. The format foll
   record. The holistic Gemini score stays the headline; the structured pipeline supplies the
   decomposition and the directional cross-check.
 - Production-signal validation against real rates (`scripts/eval_corpus_vs_rates.py`, ADR 0021): a
-  reproducible, keyless test of the platform's own headline tone. It builds a monthly Federal Reserve
-  tone index from the stored Gemini holistic scores and correlates it with FRED's effective fed funds
-  rate and 2-year Treasury yield, contemporaneously and at 3- and 6-month leads, each with a
-  bootstrap 95% CI. Measured result (2020-2026, 67 months, 538 Fed speeches): the tone index moves
-  with the rate cycle (same-month +0.52 fed funds, +0.42 2-year) and leads it (3-month forward +0.51
-  fed funds, +0.29 2-year; all CIs exclude zero), so the headline carries information about where
-  policy goes next, not only where it has been. Fed-only (the limitation is stated): the other seven
-  institutions have no free market ground truth. Report under `docs/research/`.
+  reproducible, keyless test of the platform's own tone signals. It builds two monthly Federal
+  Reserve indices, the Gemini holistic headline and the structured pipeline's forward-looking
+  rate-path, and correlates each with FRED's effective fed funds rate and 2-year Treasury yield,
+  contemporaneously and at 3- and 6-month leads, each with a bootstrap 95% CI. Measured (2020-2026,
+  67 headline months, 538 Fed speeches): the headline moves with the rate cycle (same-month +0.52 fed
+  funds, +0.42 2-year) and leads it (3-month forward +0.51 / +0.29; CIs exclude zero); the
+  forward-looking rate-path leads it *more* at the forward horizons (3-month +0.56 fed funds, +0.34
+  2-year), evidence the intent decomposition carries genuine forward information. Fed-only (the
+  limitation is stated): the other seven institutions have no free market ground truth. Report under
+  `docs/research/`.
 - Sentence-level stance aggregation engine (`cbt_core.analysis.stance`, ADR 0021), the pure,
   model-agnostic heart of a structured tone pipeline that replaces the single greedy whole-speech
   call (the weakest documented method; see `docs/research/tone-sota-blueprint.md`). It splits a
