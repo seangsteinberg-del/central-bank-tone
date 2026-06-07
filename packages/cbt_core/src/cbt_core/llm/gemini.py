@@ -38,6 +38,12 @@ _BACKOFF_BASE_SECONDS = 2.0
 # overlap below this fraction means the response is too misaligned to trust and is rejected.
 _MIN_ALIGN_RATIO = 0.8
 
+# The embedding endpoint caps the number of texts per request. A speech long enough to chunk past
+# this (the longest central-bank speeches run to ~120 chunks) would otherwise fail to index every
+# time, so ``embed`` splits its input into batches of this size and concatenates the results in
+# order. Set conservatively below the observed limit (a speech of 94 chunks embedded; 102 did not).
+_EMBED_BATCH_SIZE = 100
+
 
 def _with_backoff[T](call: Callable[[], T], *, operation: str) -> T:
     """Call ``call``, retrying transient Gemini errors with exponential backoff.
@@ -328,18 +334,27 @@ class GeminiClient:
         """
         if not texts:
             return []
+        # The endpoint caps texts per request, so split a long speech into batches and concatenate
+        # in order; without this every speech past ~100 chunks fails to index (see _EMBED_BATCH_SIZE).
+        vectors: list[Embedding] = []
+        for start in range(0, len(texts), _EMBED_BATCH_SIZE):
+            vectors.extend(self._embed_batch(list(texts[start : start + _EMBED_BATCH_SIZE])))
+        return vectors
+
+    def _embed_batch(self, batch: list[str]) -> list[Embedding]:
+        """Embed one within-limit batch of texts, returning a normalized vector per text in order."""
         response = _with_backoff(
             lambda: self._client.models.embed_content(
                 model=self._embedding_model,
                 # google-genai types `contents` as an invariant list union, so a plain list[str]
                 # is rejected by mypy though it is a valid runtime input.
-                contents=list(texts),  # type: ignore[arg-type]
+                contents=batch,  # type: ignore[arg-type]
                 config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
             ),
             operation="embed",
         )
         embeddings = response.embeddings
-        if embeddings is None or len(embeddings) != len(texts):
+        if embeddings is None or len(embeddings) != len(batch):
             raise LlmError("Gemini returned an unexpected number of embeddings")
         vectors: list[Embedding] = []
         for item in embeddings:

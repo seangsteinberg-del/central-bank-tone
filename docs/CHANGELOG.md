@@ -95,6 +95,20 @@ All notable changes to this project are documented in this file. The format foll
   capped at 12. Per-speech failures stay isolated and the fill remains idempotent and resumable.
 
 ### Fixed
+- Embedding the longest speeches (CLAUDE.md "no silent fallbacks"): `GeminiClient.embed` sent every
+  chunk of a speech in one `embed_content` request, but the endpoint caps texts per request, so any
+  speech that chunked past that cap (the longest central-bank speeches reach ~120 chunks) failed to
+  index every time and was silently absent from retrieval and question answering while still carrying
+  a tone score. `embed` now splits its input into within-limit batches and concatenates the vectors
+  in order, so a speech of any length indexes; it still raises `LlmError` on a wrong count or an empty
+  vector. Found backfilling 2023-2026: four ECB speeches (102-116 chunks) had a tone but no chunks.
+- Structured stance pipeline must not drop a whole speech (ADR 0021; CLAUDE.md section 3): a failed
+  per-sentence classification (Gemini occasionally miscounts on a very long speech) raised out of
+  `StanceService.assess` and, because ingestion runs the stance pipeline inline, lost the entire
+  speech rather than just its supplementary decomposition. The structured part now degrades to an
+  honest abstention with a logged `WARNING` while the holistic headline score and the local
+  cross-checks are preserved; the decomposition is derived and can be re-scored later. Recovered the
+  long speeches that the backfill had been dropping.
 - BIS RSS source: a transient HTTP error on one speech's detail fetch no longer aborts the whole
   feed; each entry is scraped in isolation (the regression that left the corpus short of today).
 - Red test suite on `main`: the committee read-model tests used a local `_ScriptedLlm` double that
@@ -120,6 +134,9 @@ All notable changes to this project are documented in this file. The format foll
   explicitly (`resolve_correlation_id`), minting only when nothing is bound (a CLI or worker call).
 
 ### Added (tests and internal)
+- Regression test that `GeminiClient.embed` batches input over the per-request cap and returns one
+  vector per text in order (the fix above), and that `StanceService.assess` degrades to an abstention
+  while preserving the headline when sentence classification fails.
 - Protocol-conformance test for `LlmClient` (runtime-checkable) over every full test double and the
   offline client, plus a teeth check that a client missing a method is rejected.
 - Schema enum-label parity test: `create_all` persists the same lowercase labels as the migrations.

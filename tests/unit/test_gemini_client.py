@@ -15,7 +15,7 @@ from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import EMBEDDING_DIM, RetrievedChunk
 from cbt_core.domain.tone import ToneLabel
 from cbt_core.exceptions import LlmError
-from cbt_core.llm.gemini import GeminiClient, build_gemini_client
+from cbt_core.llm.gemini import _EMBED_BATCH_SIZE, GeminiClient, build_gemini_client
 from cbt_core.settings import Settings
 
 _ANALYSIS = ToneAnalysis(
@@ -174,6 +174,27 @@ def test_embed_missing_values_raises_llm_error() -> None:
     client.models.embed_content.return_value.embeddings = [MagicMock(values=None)]
     with pytest.raises(LlmError):
         _gemini(client).embed(["a"])
+
+
+@pytest.mark.unit
+def test_embed_batches_requests_over_the_endpoint_limit() -> None:
+    # A long speech chunks past the endpoint's per-request cap; embed must split the input into
+    # batches and return one vector per text in order, rather than failing the whole speech.
+    client = _client()
+    vector = [0.1] * EMBEDDING_DIM
+
+    def _embed_one_per_text(**kwargs: object) -> MagicMock:
+        contents = kwargs["contents"]
+        assert isinstance(contents, list)
+        assert len(contents) <= _EMBED_BATCH_SIZE
+        return MagicMock(embeddings=[MagicMock(values=vector) for _ in contents])
+
+    client.models.embed_content.side_effect = _embed_one_per_text
+    texts = [f"chunk {i}" for i in range(_EMBED_BATCH_SIZE + 16)]
+    result = _gemini(client).embed(texts)
+
+    assert len(result) == len(texts)
+    assert client.models.embed_content.call_count == 2  # one full batch plus the remainder
 
 
 @pytest.mark.unit

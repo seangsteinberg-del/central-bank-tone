@@ -11,9 +11,16 @@ from types import SimpleNamespace
 import pytest
 from tests._stubs import StubLlmClient
 
-from cbt_core import CentralBank, StanceAssessment, StanceService, ToneLabel
+from cbt_core import CentralBank, LlmError, StanceAssessment, StanceService, ToneLabel
 
 _FED = CentralBank.FEDERAL_RESERVE
+
+
+class _ClassificationFails:
+    """A model whose per-sentence classification always fails (Gemini miscount on a long speech)."""
+
+    def classify_sentences(self, sentences: object) -> list[object]:
+        raise LlmError("Gemini returned an unparseable sentence classification")
 
 
 class _FixedClassifier:
@@ -102,3 +109,19 @@ def test_assess_excludes_the_classifier_for_non_fed_banks(stub_llm_client: StubL
     # For the Fed the dovish classifier is a valid cross-check that dissents; for the ECB it is
     # excluded (it is FOMC-trained and does not transfer), so the ECB shows less disagreement.
     assert fed.uncertainty > ecb.uncertainty
+
+
+@pytest.mark.unit
+def test_assess_degrades_to_abstention_when_classification_fails() -> None:
+    # A failed sentence classification must not lose the speech: the headline stands and the
+    # structured part abstains (ADR 0021; CLAUDE.md section 3, honest degradation not a silent drop).
+    result = StanceService(_ClassificationFails()).assess(  # type: ignore[arg-type]
+        "We will raise interest rates and tighten policy as inflation runs too high.",
+        headline_score=0.5,
+        headline_tone=ToneLabel.HAWKISH,
+        central_bank=_FED,
+    )
+    assert result.score == 0.5
+    assert result.tone is ToneLabel.HAWKISH
+    assert result.structured_net == 0.0
+    assert result.aggregate.fired is False

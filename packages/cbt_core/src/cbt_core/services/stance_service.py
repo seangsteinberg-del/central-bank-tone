@@ -30,7 +30,11 @@ from cbt_core.analysis import (
 from cbt_core.domain.registry import CentralBank
 from cbt_core.domain.speech import SpeechStance
 from cbt_core.domain.tone import ToneLabel
+from cbt_core.exceptions import LlmError
 from cbt_core.llm.client import LlmClient
+from cbt_core.logging import get_logger
+
+_logger = get_logger(__name__)
 
 
 def build_stance(
@@ -120,14 +124,24 @@ class StanceService:
         Returns:
             The :class:`~cbt_core.analysis.StanceAssessment`: the headline, the rate-path (forward)
             measure, the per-aspect breakdown, the cross-checks, the directional uncertainty, and the
-            review flag. With no policy-relevant sentence the structured part is an honest abstention
-            but the headline is preserved.
+            review flag. With no policy-relevant sentence, or if the model's sentence classification
+            fails, the structured part is an honest abstention but the headline is preserved.
         """
         sentences = split_sentences(text)
         relevant = self._filter.filter(sentences)
-        model_aggregate = aggregate_stances(
-            self._llm.classify_sentences(relevant), total=len(sentences)
-        )
+        classified: list[ClassifiedSentence]
+        try:
+            classified = self._llm.classify_sentences(relevant)
+        except LlmError:
+            # The structured sentence pipeline is the supplementary decomposition, not the headline
+            # (ADR 0021). When the model cannot return a usable per-sentence classification - it can
+            # miscount on a very long speech - degrade the structured part to an honest abstention and
+            # keep the headline and the local cross-checks, rather than dropping the whole speech.
+            # Logged as a WARNING, never silent (CLAUDE.md section 3); the decomposition is derived
+            # and can be re-scored later as the method improves.
+            _logger.warning("stance_classification_degraded", relevant_sentences=len(relevant))
+            classified = []
+        model_aggregate = aggregate_stances(classified, total=len(sentences))
         classifier_aggregate = aggregate_stances(
             [
                 ClassifiedSentence(
