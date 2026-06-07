@@ -134,6 +134,10 @@ All notable changes to this project are documented in this file. The format foll
   explicitly (`resolve_correlation_id`), minting only when nothing is bound (a CLI or worker call).
 
 ### Added (tests and internal)
+- `scripts/run_backfill.py`: a no-Docker SQLite backfill that ingests every tracked-bank speech from
+  a start year to a cutoff date. It reads complete past years from the BIS bulk per-year archives and
+  the current year from the document sitemap and detail pages (whose bulk archive is not published
+  yet), scoring and summarizing each with real Gemini. Idempotent by source hash, so a re-run resumes.
 - Regression test that `GeminiClient.embed` batches input over the per-request cap and returns one
   vector per text in order (the fix above), and that `StanceService.assess` degrades to an abstention
   while preserving the headline when sentence classification fails.
