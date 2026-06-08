@@ -19,9 +19,12 @@ from pydantic import ValidationError
 
 from cbt_core import (
     Aspect,
+    BenchmarkUnavailableError,
     CentralBank,
     CommitteeMovement,
+    InsufficientDataError,
     MemberMovement,
+    SignalVsMarket,
     Speaker,
     Speech,
     SpeechStance,
@@ -32,6 +35,7 @@ from cbt_web.dependencies import (
     CommitteeServiceDep,
     IndexingServiceDep,
     IngestionServiceDep,
+    MarketSignalServiceDep,
     QaServiceDep,
     SpeakerServiceDep,
     ToneServiceDep,
@@ -1497,6 +1501,146 @@ def spread(
 def methodology(request: Request) -> Response:
     """Render the methodology page: how tone is scored and how well it is measured to work."""
     return templates.TemplateResponse(request, "methodology.html", {})
+
+
+# Signal vs Market dual-axis chart geometry (tone on the left axis, the 2-year yield on the right).
+_SVM_W = 720.0
+_SVM_H = 250.0
+_SVM_PAD_L = 40.0
+_SVM_PAD_R = 46.0
+_SVM_TOP = 16.0
+_SVM_BOTTOM = 200.0
+_SVM_MAX_MONTH_LABELS = 12
+
+
+@dataclass(frozen=True)
+class SvmTick:
+    """A value-axis tick on the Signal vs Market chart (its y position and label)."""
+
+    y: float
+    label: str
+
+
+@dataclass(frozen=True)
+class SvmSeriesLine:
+    """One plotted series in the Signal vs Market chart (an SVG polyline plus its end label)."""
+
+    points: str
+    css: str
+    label: str
+    end_x: float
+    end_y: float
+    end_text: str
+
+
+@dataclass(frozen=True)
+class SvmChart:
+    """Precomputed dual-axis chart: monthly headline tone against the 2-year Treasury yield."""
+
+    width: float
+    height: float
+    zero_y: float
+    tone: SvmSeriesLine
+    rate: SvmSeriesLine
+    month_labels: tuple[MonthLabel, ...]
+    left_ticks: tuple[SvmTick, ...]
+    right_ticks: tuple[SvmTick, ...]
+
+
+def _svm_chart(svm: SignalVsMarket) -> SvmChart | None:
+    """Build the dual-axis chart geometry from a Signal vs Market view, or None if too sparse."""
+    months = list(range(svm.span_start, svm.span_end + 1))
+    if len(months) < 2:
+        return None
+    two_year = next((s for s in svm.rate_series if s.code == "GS2"), None)
+    if two_year is None or not two_year.points:
+        return None
+    span = max(len(months) - 1, 1)
+    plot_w = _SVM_W - _SVM_PAD_L - _SVM_PAD_R
+    plot_h = _SVM_BOTTOM - _SVM_TOP
+
+    def x_of(month: int) -> float:
+        return _SVM_PAD_L + (month - svm.span_start) / span * plot_w
+
+    def tone_y(value: float) -> float:
+        return _SVM_TOP + (1.0 - max(-1.0, min(1.0, value))) / 2.0 * plot_h
+
+    rate_values = [two_year.points[m] for m in months if m in two_year.points]
+    rate_lo, rate_hi = min(rate_values), max(rate_values)
+    if rate_hi == rate_lo:
+        rate_hi = rate_lo + 1.0
+
+    def rate_y(value: float) -> float:
+        return _SVM_TOP + (rate_hi - value) / (rate_hi - rate_lo) * plot_h
+
+    tone_months = [m for m in months if m in svm.headline_index.points]
+    rate_months = [m for m in months if m in two_year.points]
+    tone_pts = " ".join(
+        f"{x_of(m):.1f},{tone_y(svm.headline_index.points[m]):.1f}" for m in tone_months
+    )
+    rate_pts = " ".join(f"{x_of(m):.1f},{rate_y(two_year.points[m]):.1f}" for m in rate_months)
+
+    step = max(1, len(months) // _SVM_MAX_MONTH_LABELS)
+    month_labels = tuple(
+        MonthLabel(x=x_of(m), label=f"{m // 12:04d}-{m % 12 + 1:02d}")
+        for i, m in enumerate(months)
+        if i % step == 0
+    )
+    left_ticks = tuple(SvmTick(y=tone_y(v), label=f"{v:+.1f}") for v in (1.0, 0.5, 0.0, -0.5, -1.0))
+    right_ticks = tuple(
+        SvmTick(
+            y=rate_y(rate_lo + frac * (rate_hi - rate_lo)),
+            label=f"{rate_lo + frac * (rate_hi - rate_lo):.1f}",
+        )
+        for frac in (1.0, 0.5, 0.0)
+    )
+    last_tone = tone_months[-1]
+    last_rate = rate_months[-1]
+    return SvmChart(
+        width=_SVM_W,
+        height=_SVM_H,
+        zero_y=tone_y(0.0),
+        tone=SvmSeriesLine(
+            points=tone_pts,
+            css="tone",
+            label="Headline tone",
+            end_x=x_of(last_tone),
+            end_y=tone_y(svm.headline_index.points[last_tone]),
+            end_text="tone",
+        ),
+        rate=SvmSeriesLine(
+            points=rate_pts,
+            css="rate",
+            label="2-year Treasury",
+            end_x=x_of(last_rate),
+            end_y=rate_y(two_year.points[last_rate]),
+            end_text="2y %",
+        ),
+        month_labels=month_labels,
+        left_ticks=left_ticks,
+        right_ticks=right_ticks,
+    )
+
+
+@router.get("/signal-vs-market")
+def signal_vs_market(request: Request, market: MarketSignalServiceDep) -> Response:
+    """Render the Signal vs Market divergence view, or an honest unavailable state.
+
+    The page relates the platform's Federal Reserve tone signals to market rates. When the cached
+    rate data is missing or the corpus has too little Fed history, it renders an explanatory panel
+    rather than a 500 or an empty chart (CLAUDE.md section 3).
+    """
+    try:
+        svm = market.signal_vs_market()
+    except (BenchmarkUnavailableError, InsufficientDataError) as exc:
+        return templates.TemplateResponse(
+            request, "signal_vs_market.html", {"svm": None, "unavailable": str(exc)}
+        )
+    return templates.TemplateResponse(
+        request,
+        "signal_vs_market.html",
+        {"svm": svm, "chart": _svm_chart(svm), "unavailable": None},
+    )
 
 
 @router.get("/ui/speakers")

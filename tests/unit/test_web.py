@@ -19,8 +19,11 @@ from tests._stubs import StubChunkRetriever
 
 from cbt_core import (
     CentralBank,
+    Divergence,
+    MonthlySeries,
     QaService,
     Settings,
+    SignalVsMarket,
     SpeakerService,
     ToneLabel,
     ToneObservation,
@@ -37,6 +40,7 @@ from cbt_web.views import (
     _movers,
     _spread_chart,
     _stance_delta,
+    _svm_chart,
 )
 
 
@@ -268,6 +272,79 @@ def test_chrome_reflects_the_live_gemini_backend_not_offline(web_client: TestCli
     assert "Gemini judge" in response.text
     assert "tone scored locally" not in response.text
     assert "offline: local classifier" not in response.text
+
+
+@pytest.mark.web
+def test_signal_vs_market_renders_honest_unavailable_state_not_a_500(
+    web_client: TestClient,
+) -> None:
+    # With too little Federal Reserve history the page must render an explanatory panel, never a 500
+    # or an empty chart (CLAUDE.md section 3). The thin test corpus trips the insufficient-data path.
+    response = web_client.get("/signal-vs-market")
+    assert response.status_code == 200
+    assert "Signal vs Market" in response.text
+    assert "qualifying" in response.text  # the honest insufficient-data message
+
+
+def _svm_fixture(months: int) -> SignalVsMarket:
+    """A SignalVsMarket with ``months`` of headline tone and a 2-year series, for chart geometry."""
+    start = 2024 * 12
+    headline = {start + i: round(-0.4 + i * 0.05, 2) for i in range(months)}
+    gs2 = {start + i: round(4.5 - i * 0.04, 2) for i in range(months)}
+    return SignalVsMarket(
+        central_bank=CentralBank.FEDERAL_RESERVE,
+        headline_index=MonthlySeries(
+            label="Headline tone",
+            code="headline",
+            is_rate=False,
+            is_market_proxy=False,
+            points=headline,
+        ),
+        rate_path_index=MonthlySeries(
+            label="Rate-path tone",
+            code="rate-path",
+            is_rate=False,
+            is_market_proxy=False,
+            points=headline,
+        ),
+        rate_series=(
+            MonthlySeries(
+                label="2-year Treasury", code="GS2", is_rate=True, is_market_proxy=True, points=gs2
+            ),
+        ),
+        correlations=(),
+        divergence=Divergence(
+            tone_change_3m=0.15,
+            market_change_bp_3m=-12.0,
+            tone_direction="more hawkish",
+            market_direction="repricing lower",
+            aligned=False,
+            headline="diverging",
+        ),
+        span_start=start,
+        span_end=start + months - 1,
+        months=months,
+        speeches=months * 3,
+        corpus_through="2024-12",
+        market_through="2024-12",
+        min_speeches_per_month=3,
+    )
+
+
+@pytest.mark.unit
+def test_svm_chart_builds_two_polylines_over_the_month_span() -> None:
+    chart = _svm_chart(_svm_fixture(14))
+    assert chart is not None
+    assert chart.tone.points  # the tone series is plotted
+    assert chart.rate.points  # the rate series is plotted
+    assert len(chart.month_labels) >= 1
+    assert chart.left_ticks
+    assert chart.right_ticks
+
+
+@pytest.mark.unit
+def test_svm_chart_is_none_when_too_sparse_to_plot() -> None:
+    assert _svm_chart(_svm_fixture(1)) is None
 
 
 @pytest.mark.web
@@ -669,6 +746,7 @@ def failing_web_client(
     ingestion_service: object,
     indexing_service: object,
     committee_service: object,
+    market_service: object,
     id_factory: IdFactory,
 ) -> Iterator[TestClient]:
     """A web client whose Q&A service raises an LlmError, to render the server-error page."""
@@ -686,6 +764,7 @@ def failing_web_client(
         indexing_service=indexing_service,  # type: ignore[arg-type]  # unused on this path
         qa_service=qa,
         committee_service=committee_service,  # type: ignore[arg-type]  # unused on this path
+        market_service=market_service,  # type: ignore[arg-type]  # unused on this path
     )
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client

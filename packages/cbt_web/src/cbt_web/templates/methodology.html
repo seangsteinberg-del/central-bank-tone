@@ -5,7 +5,9 @@
 <h1>Methodology: how tone is scored, and how well it works</h1>
 <p class="muted">
   The value of this platform is a tone signal, so the signal is measured against labeled data
-  rather than asserted. Everything below is reproducible offline with <code>make eval</code>.
+  rather than asserted. The FOMC-benchmark accuracy below is reproducible offline with
+  <code>make eval</code>; the rate validation is computed live on the
+  <a href="/signal-vs-market">Signal vs Market</a> page from this corpus.
 </p>
 
 <section class="panel">
@@ -47,28 +49,30 @@
 </section>
 
 <section class="panel">
-  <h2>Does the production signal lead Fed policy?</h2>
+  <h2>Does the production signal track Fed policy?</h2>
   <p class="muted" style="margin-top:-4px">
-    The benchmark below measures the scorers on labeled FOMC sentences. This measures the platform's
-    <strong>own</strong> headline, on its real corpus, against rates: a monthly Federal Reserve tone
-    index from the stored scores vs FRED's fed funds rate and 2-year Treasury yield (2020-2026), each
-    with a bootstrap 95% CI.
+    This measures the platform's <strong>own</strong> headline, on this corpus, against rates: a
+    monthly Federal Reserve tone index from the stored scores vs FRED's fed funds rate and 2-year
+    Treasury yield (2023-2026, 39 months, 370 Fed speeches), each with a bootstrap 95% CI. These
+    figures are computed live on the <a href="/signal-vs-market">Signal vs Market</a> page.
   </p>
   <table class="method-table">
     <thead>
       <tr><th>vs</th><th class="num">same-month</th><th class="num">+3 months (lead)</th><th class="num">+6 months (lead)</th></tr>
     </thead>
     <tbody>
-      <tr><td>effective fed funds</td><td class="num win">+0.52</td><td class="num win">+0.51</td><td class="num win">+0.52</td></tr>
-      <tr><td>2-year Treasury</td><td class="num win">+0.42</td><td class="num win">+0.29</td><td class="num win">+0.27</td></tr>
+      <tr><td>effective fed funds</td><td class="num win">+0.67</td><td class="num win">+0.72</td><td class="num win">+0.59</td></tr>
+      <tr><td>2-year Treasury</td><td class="num">+0.27</td><td class="num">-0.12</td><td class="num">-0.09</td></tr>
     </tbody>
   </table>
   <div class="callout">
-    Every interval excludes zero. The index does not just move with the rate cycle (same-month); it
-    <strong>leads</strong> it, and it leads the forward-looking 2-year yield (+0.29 at three months),
-    so the signal carries information about where policy goes next, not only where it has been. This
-    is correlation on the Fed alone, where free market ground truth exists, not out-of-sample PnL;
-    full numbers in <code>docs/research/corpus-tone-vs-rates.md</code>.
+    On the effective fed funds rate the index does not just move with the cycle (same-month +0.67);
+    it <strong>leads</strong> it (+0.72 at three months, CI excludes zero). Against the
+    forward-looking 2-year yield the relationship is contemporaneous only (+0.27, CI includes zero)
+    and the three- and six-month leads are inconclusive on this 2023-2026 corpus, so we do not claim
+    the tone leads the 2-year here. This is correlation on the Fed alone, where free market ground
+    truth exists, not out-of-sample PnL. See <a href="/signal-vs-market">Signal vs Market</a> for the
+    rate-path index and the current divergence.
   </div>
 </section>
 

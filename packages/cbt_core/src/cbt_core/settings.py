@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -57,6 +58,12 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr = SecretStr("")
     gemini_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
+
+    # Directory holding the cached FRED rate-series CSVs the Signal vs Market view reads (ADR 0022).
+    # Relative to the working directory by default (the app runs from the repo root); override with
+    # CBT_BENCHMARK_DIR. The data is a cached snapshot refreshed by scripts/eval_corpus_vs_rates.py,
+    # never fetched from the network inside a request.
+    benchmark_dir: Path = Path("data/benchmarks")
 
     @field_validator("secret_key")
     @classmethod

@@ -19,6 +19,7 @@ from cbt_core import (
     IndexingService,
     IngestionService,
     LazyGeminiClient,
+    MarketSignalService,
     QaService,
     Settings,
     SpeakerService,
@@ -41,6 +42,7 @@ class Services:
     indexing_service: IndexingService
     qa_service: QaService
     committee_service: CommitteeService
+    market_service: MarketSignalService
     # True when the keyless offline client scores tone and answers; False when the Gemini judge
     # does. The chrome reads this so it never mislabels which backend produced the numbers on screen.
     offline: bool = False
@@ -69,6 +71,7 @@ def build_services(settings: Settings) -> Services:
         indexing_service=IndexingService(session_factory, llm),
         qa_service=QaService(llm, SpeechRetriever(session_factory), speaker_service),
         committee_service=CommitteeService(session_factory),
+        market_service=MarketSignalService(session_factory, benchmark_dir=settings.benchmark_dir),
     )
 
 
@@ -110,9 +113,15 @@ def get_committee_service(services: ServicesDep) -> CommitteeService:
     return services.committee_service
 
 
+def get_market_service(services: ServicesDep) -> MarketSignalService:
+    """Return the Signal vs Market service."""
+    return services.market_service
+
+
 SpeakerServiceDep = Annotated[SpeakerService, Depends(get_speaker_service)]
 ToneServiceDep = Annotated[ToneService, Depends(get_tone_service)]
 IngestionServiceDep = Annotated[IngestionService, Depends(get_ingestion_service)]
 IndexingServiceDep = Annotated[IndexingService, Depends(get_indexing_service)]
 QaServiceDep = Annotated[QaService, Depends(get_qa_service)]
 CommitteeServiceDep = Annotated[CommitteeService, Depends(get_committee_service)]
+MarketSignalServiceDep = Annotated[MarketSignalService, Depends(get_market_service)]

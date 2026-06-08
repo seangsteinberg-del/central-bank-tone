@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Signal vs Market - Central Bank Tone{% endblock %}
+{% block crumb %}signal vs market{% endblock %}
+{% block content %}
+<a class="back" href="/">&larr; Dashboard</a>
+<h1>Signal vs Market: does our Fed read agree with what is priced?</h1>
+<p class="muted">
+  This relates the platform's own Federal Reserve tone signals to market rates: the monthly headline
+  tone and the forward-looking rate-path against the effective fed funds rate and the 2-year
+  Treasury yield. The 2-year is the market's freely-repricing read of the policy path; the divergence
+  below is the macro "so what".
+</p>
+
+{% if unavailable %}
+<section class="panel">
+  <p class="abstain-note">{{ unavailable }}</p>
+  <p class="muted">
+    The rate series are cached snapshots under <code>data/benchmarks</code>, refreshed by
+    <code>scripts/eval_corpus_vs_rates.py</code>. This view needs at least twelve qualifying Federal
+    Reserve months.
+  </p>
+</section>
+{% else %}
+
+<section class="panel svm-card {% if svm.divergence.aligned is none %}flat{% elif svm.divergence.aligned %}aligned{% else %}diverged{% endif %}">
+  <div class="svm-read">{{ svm.divergence.headline }}</div>
+  <div class="stat-grid">
+    <div class="stat">
+      {% if svm.divergence.tone_change_3m is not none %}
+      <div class="value num"><span class="score-chip {{ svm.divergence.tone_change_3m | score_chip }}">{{ "%+.2f" | format(svm.divergence.tone_change_3m) }}</span></div>
+      {% else %}<div class="value num">&mdash;</div>{% endif %}
+      <div class="label">Fed tone &middot; 3-month change ({{ svm.divergence.tone_direction }})</div>
+    </div>
+    <div class="stat">
+      {% if svm.divergence.market_change_bp_3m is not none %}
+      <div class="value num">{{ "%+.0f" | format(svm.divergence.market_change_bp_3m) }} bp</div>
+      {% else %}<div class="value num">&mdash;</div>{% endif %}
+      <div class="label">2-year yield &middot; 3-month change ({{ svm.divergence.market_direction }})</div>
+    </div>
+    <div class="stat">
+      <div class="value">
+        {% if svm.divergence.aligned is none %}n/a
+        {% elif svm.divergence.aligned %}moving together
+        {% else %}diverging{% endif %}
+      </div>
+      <div class="label">tone vs market pricing</div>
+    </div>
+  </div>
+</section>
+
+{% if chart %}
+<section class="panel">
+  <div class="section-title"><h2>Monthly Fed headline tone vs the 2-year Treasury yield</h2>
+    <span class="muted num" style="font-size:.82rem">corpus to {{ svm.corpus_through }} &middot; rates to {{ svm.market_through }}</span>
+  </div>
+  <svg class="svm-chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img"
+       aria-label="Federal Reserve headline tone against the 2-year Treasury yield by month">
+    <line class="svm-zero" x1="0" y1="{{ "%.1f" | format(chart.zero_y) }}" x2="{{ chart.width }}" y2="{{ "%.1f" | format(chart.zero_y) }}"></line>
+    {% for t in chart.left_ticks %}
+    <text class="svm-axis left" x="4" y="{{ "%.1f" | format(t.y + 3) }}">{{ t.label }}</text>
+    {% endfor %}
+    {% for t in chart.right_ticks %}
+    <text class="svm-axis right" x="{{ chart.width - 4 }}" y="{{ "%.1f" | format(t.y + 3) }}">{{ t.label }}</text>
+    {% endfor %}
+    {% for m in chart.month_labels %}
+    <text class="svm-month" x="{{ "%.1f" | format(m.x) }}" y="{{ chart.height - 6 }}">{{ m.label }}</text>
+    {% endfor %}
+    <polyline class="svm-line {{ chart.rate.css }}" points="{{ chart.rate.points }}"></polyline>
+    <polyline class="svm-line {{ chart.tone.css }}" points="{{ chart.tone.points }}"></polyline>
+    <text class="svm-end {{ chart.tone.css }}" x="{{ "%.1f" | format(chart.tone.end_x + 4) }}" y="{{ "%.1f" | format(chart.tone.end_y) }}">{{ chart.tone.end_text }}</text>
+    <text class="svm-end {{ chart.rate.css }}" x="{{ "%.1f" | format(chart.rate.end_x + 4) }}" y="{{ "%.1f" | format(chart.rate.end_y) }}">{{ chart.rate.end_text }}</text>
+  </svg>
+  <div class="svm-legend">
+    <span class="swatch tone"></span> Headline tone (left axis, +1..-1)
+    <span class="swatch rate"></span> 2-year Treasury yield % (right axis)
+  </div>
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="section-title"><h2>Lead correlations</h2>
+    <span class="muted num" style="font-size:.82rem">live from this corpus &middot; {{ svm.months }} months, {{ svm.speeches }} Fed speeches</span>
+  </div>
+  <p class="muted" style="margin-top:-4px">
+    Each tone index against each rate series: same-month co-movement and whether tone leads the move
+    over the next 3 and 6 months, with a bootstrap 95% CI. An interval that includes zero is
+    inconclusive, not evidence of no effect.
+  </p>
+  <table class="method-table">
+    <thead>
+      <tr><th>index</th><th>vs rate</th><th class="num">same-month</th><th class="num">+3 months</th><th class="num">+6 months</th></tr>
+    </thead>
+    <tbody>
+      {% for ivr in svm.correlations %}
+      <tr>
+        <td>{{ ivr.index_name }}</td>
+        <td>{{ ivr.rate_label }}</td>
+        {% for c in ivr.correlations %}
+        <td class="num {% if c.excludes_zero %}win{% endif %}">
+          {{ "%+.2f" | format(c.r) }} [{{ "%+.2f" | format(c.ci_low) }}, {{ "%+.2f" | format(c.ci_high) }}]{% if not c.excludes_zero %} <span class="muted">(incl. 0)</span>{% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>How to read this</h2>
+  <ul>
+    <li><strong>Federal Reserve only.</strong> This is where free market ground truth exists; the
+      other seven institutions are scored but not validated against rates here.</li>
+    <li><strong>The 2-year yield is the market-path proxy.</strong> It reprices freely with the
+      expected policy path, unlike the highly persistent effective fed funds rate (whose forward
+      correlation partly reflects a hawkish regime simply staying hawkish).</li>
+    <li><strong>Correlation, not PnL.</strong> These are in-sample correlations over a single
+      hiking-and-cutting cycle with wide monthly standard errors; a research signal, not a trade.</li>
+    <li><strong>Cached market data.</strong> The FRED series are cached snapshots (latest month
+      shown above), not live ticks.</li>
+    <li><strong>The headline is one model's holistic judgement;</strong> the rate-path and the
+      cross-check uncertainty band on each speech are what surface when to distrust it.</li>
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

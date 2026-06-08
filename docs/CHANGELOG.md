@@ -7,6 +7,23 @@ All notable changes to this project are documented in this file. The format foll
 ## [Unreleased]
 
 ### Added
+- Signal vs Market divergence view (`/signal-vs-market`, ADR 0022): the macro "so what". A read-only
+  core `MarketSignalService` builds the monthly Federal Reserve headline-tone and forward-looking
+  rate-path indices from the stored scores (through the repository layer, so it is correct on both
+  SQLite and PostgreSQL), relates each to the effective fed funds rate and the 2-year Treasury yield
+  with a seeded bootstrap 95% CI, and reports the current divergence between the three-month tone
+  shift and the three-month 2-year repricing. The page shows a dual-axis chart (tone against the
+  2-year), the live lead-correlation table, a plain-prose divergence read, and labels its limits
+  (Fed-only validation, the 2-year as the market-path proxy, correlation not PnL, a cached-snapshot
+  data date). The rate series are cached FRED CSVs read from a new `Settings.benchmark_dir`; the
+  service never fetches inside a request, raising `BenchmarkUnavailableError` (missing cache) or
+  `InsufficientDataError` (fewer than twelve Fed months), which the view renders as an honest
+  unavailable panel rather than a 500 or an empty chart. New domain models (`SignalVsMarket`,
+  `Divergence`, `IndexVsRate`, `LeadCorrelation`, `MonthlySeries`) and the service are re-exported
+  from the package surface. Measured on the served 2023-2026 corpus and shown on the methodology
+  page: the headline tracks and leads the fed funds rate (+0.67 same-month, +0.72 at three months,
+  CIs exclude zero), while its relationship with the 2-year yield is contemporaneous only and the
+  forward lead is inconclusive, corrected from the previously published 2020-2026 figures.
 - Speech page: a "Policy decomposition" panel (ADR 0021) surfacing the structured pipeline's output
   for each speech: the forward-looking rate-path intent on a diverging bar, the per-aspect
   net-hawkishness breakdown, the three cross-check nets (sentence, classifier, lexicon), and the

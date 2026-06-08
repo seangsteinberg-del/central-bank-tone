@@ -8,6 +8,13 @@ from __future__ import annotations
 
 from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.committee import CommitteeMovement, MemberMovement
+from cbt_core.domain.market import (
+    Divergence,
+    IndexVsRate,
+    LeadCorrelation,
+    MonthlySeries,
+    SignalVsMarket,
+)
 from cbt_core.domain.models import Speaker, ToneObservation
 from cbt_core.domain.qa import Answer, Citation, RetrievedChunk
 from cbt_core.domain.registry import CentralBank
@@ -19,8 +26,13 @@ __all__ = [
     "CentralBank",
     "Citation",
     "CommitteeMovement",
+    "Divergence",
+    "IndexVsRate",
+    "LeadCorrelation",
     "MemberMovement",
+    "MonthlySeries",
     "RetrievedChunk",
+    "SignalVsMarket",
     "Speaker",
     "Speech",
     "SpeechStance",

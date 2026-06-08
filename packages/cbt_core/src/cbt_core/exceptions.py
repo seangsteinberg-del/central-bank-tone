@@ -54,3 +54,21 @@ class LlmError(CbtError):
     Raised at the LLM boundary rather than degrading silently (CLAUDE.md section 3): a missing
     or malformed model response surfaces as an explicit error, never a fabricated result.
     """
+
+
+class BenchmarkUnavailableError(CbtError):
+    """A required cached benchmark file (for example a FRED rate-series CSV) is missing.
+
+    Raised by the market-signal service when the cached snapshot it reads is absent, rather than
+    fetching from the network inside a request or rendering an empty chart (CLAUDE.md section 3).
+    Adapters surface this as an explicit "data unavailable" state, not a fabricated result.
+    """
+
+
+class InsufficientDataError(CbtError):
+    """Not enough data exists to produce a meaningful result.
+
+    Raised when an analysis needs a minimum amount of history (for example a minimum number of
+    qualifying months) that the corpus does not yet have. An honest abstention, never a misleading
+    chart built on too few points.
+    """

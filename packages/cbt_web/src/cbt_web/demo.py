@@ -26,6 +26,7 @@ from cbt_core import (
     InMemoryChunkRetriever,
     LlmClient,
     LlmError,
+    MarketSignalService,
     OfflineLlmClient,
     PersistentChunkRetriever,
     QaService,
@@ -184,6 +185,7 @@ def build_demo_services(
         indexing_service=indexer,
         qa_service=QaService(llm, retriever, speaker_service, max_distance=max_distance),
         committee_service=CommitteeService(session_factory),
+        market_service=MarketSignalService(session_factory, benchmark_dir=settings.benchmark_dir),
         offline=offline,
     )
 

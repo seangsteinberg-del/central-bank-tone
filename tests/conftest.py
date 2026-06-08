@@ -27,6 +27,7 @@ from cbt_core import (
     CommitteeService,
     IndexingService,
     IngestionService,
+    MarketSignalService,
     QaService,
     Settings,
     SpeakerService,
@@ -206,6 +207,14 @@ def committee_service(session_factory: sessionmaker[Session]) -> CommitteeServic
 
 
 @pytest.fixture
+def market_service(
+    session_factory: sessionmaker[Session], dummy_settings: Settings
+) -> MarketSignalService:
+    """A market-signal service reading the committed cached FRED CSVs (no network)."""
+    return MarketSignalService(session_factory, benchmark_dir=dummy_settings.benchmark_dir)
+
+
+@pytest.fixture
 def web_client(
     dummy_settings: Settings,
     sqlite_engine: Engine,
@@ -215,6 +224,7 @@ def web_client(
     indexing_service: IndexingService,
     qa_service: QaService,
     committee_service: CommitteeService,
+    market_service: MarketSignalService,
 ) -> Iterator[TestClient]:
     """A TestClient for the web UI app, backed by the same SQLite-backed services."""
     from cbt_web.app import create_app
@@ -230,6 +240,7 @@ def web_client(
         indexing_service=indexing_service,
         qa_service=qa_service,
         committee_service=committee_service,
+        market_service=market_service,
     )
     with TestClient(app) as test_client:
         yield test_client

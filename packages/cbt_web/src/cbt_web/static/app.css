@@ -760,6 +760,31 @@ a.speech-title:hover { color: var(--accent); }
 .method-steps li { margin: 8px 0; line-height: 1.55; }
 .method-steps strong { color: var(--ink); }
 .research-img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); margin-top: 8px; background: #fff; }
+
+/* --------------------------------------------------------------- Signal vs Market */
+.svm-card { border-left: 4px solid var(--line); }
+.svm-card.aligned { border-left-color: var(--good, #2f9e44); }
+.svm-card.diverged { border-left-color: var(--accent, #c0392b); }
+.svm-read { font-size: 1.05rem; line-height: 1.5; color: var(--ink); margin-bottom: 12px; }
+.svm-chart { width: 100%; height: auto; display: block; }
+.svm-chart .svm-zero { stroke: var(--line); stroke-width: 1; }
+.svm-chart .svm-line { fill: none; stroke-width: 2; }
+.svm-chart .svm-line.tone { stroke: var(--accent, #c0392b); }
+.svm-chart .svm-line.rate { stroke: #2f6fb0; stroke-dasharray: 4 3; }
+.svm-chart .svm-axis { font-family: var(--mono); font-size: 9px; fill: var(--faint); }
+.svm-chart .svm-axis.left { text-anchor: start; }
+.svm-chart .svm-axis.right { text-anchor: end; }
+.svm-chart .svm-month { font-family: var(--mono); font-size: 9px; fill: var(--faint); text-anchor: middle; }
+.svm-chart .svm-end { font-family: var(--mono); font-size: 9px; }
+.svm-chart .svm-end.tone { fill: var(--accent, #c0392b); }
+.svm-chart .svm-end.rate { fill: #2f6fb0; }
+.svm-legend { font-size: 0.8rem; color: var(--faint); margin-top: 6px; }
+.svm-legend .swatch { display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin: 0 4px 0 12px; }
+.svm-legend .swatch.tone { background: var(--accent, #c0392b); }
+.svm-legend .swatch.rate { background: #2f6fb0; }
+.svm-cta { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.svm-cta h2 { margin: 0 0 4px; }
+.svm-cta .btn { white-space: nowrap; }
 .callout {
   background: var(--inset);
   border: 1px solid var(--line);
