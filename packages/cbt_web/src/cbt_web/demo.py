@@ -152,6 +152,7 @@ def build_demo_services(
     session_factory = make_session_factory(engine)
 
     llm = llm if llm is not None else OfflineLlmClient()
+    offline = isinstance(llm, OfflineLlmClient)
     retriever: InMemoryChunkRetriever = (
         PersistentChunkRetriever(engine, session_factory)
         if persistent_retrieval
@@ -183,6 +184,7 @@ def build_demo_services(
         indexing_service=indexer,
         qa_service=QaService(llm, retriever, speaker_service, max_distance=max_distance),
         committee_service=CommitteeService(session_factory),
+        offline=offline,
     )
 
 

@@ -94,6 +94,23 @@ All notable changes to this project are documented in this file. The format foll
   race to create the same one), about 9x faster than the sequential fill on a paid key. Default 8,
   capped at 12. Per-speech failures stay isolated and the fill remains idempotent and resumable.
 
+### Changed
+- Demo honesty and credibility pass over the web UI (no part of the product should imply a
+  stronger or different signal than it has): the chrome now reflects the backend actually serving
+  the page (a new `Services.offline` flag drives the rail status and footer), so a live Gemini
+  instance no longer says "tone scored locally / Gemini optional" or describes the offline
+  pipeline; the methodology page's mode note follows the same flag and reconciles its role
+  hierarchy (Gemini holistic judge is the headline, the Fed-only classifier and the lexicon are
+  directional cross-checks). The speech page shows an honest abstention note when the structured
+  pipeline found no policy-relevant sentences, instead of a wall of misleading `+0.00` chips, and
+  hides the FOMC-trained classifier cross-check for non-Fed banks (where it does not transfer,
+  ADR 0013). The dashboard masthead's pooled tone number is relabelled "corpus mood" with a caveat
+  that tone compares only within a committee, not across banks; the methodology page adds honest
+  limitations on cross-bank comparability and the headline score's coarse granularity. The
+  duplicated abstention message on a grounded-answer card is removed. `_ASPECT_ORDER` in the web
+  view is now derived from the `Aspect` schema spine so a new aspect can never silently drop off
+  the speech page (CLAUDE.md section 2).
+
 ### Fixed
 - Model and data-integrity failures now always surface as a typed `CbtError` the adapters
   translate, never a raw exception that bypasses the error handlers and crashes a page (CLAUDE.md

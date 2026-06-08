@@ -146,8 +146,16 @@
     <li>The production-signal rate validation is the Federal Reserve only, where free market ground
       truth exists; the other seven institutions are scored but their tone is not validated against
       rates here. The link is correlation over a single monthly cycle, not out-of-sample PnL.</li>
-    <li>In the keyless demo, tone is the offline classifier and answers are extractive (clearly
-      labeled); the production path uses the Gemini judge and generative answers.</li>
+    <li>Tone is compared only within a committee, not across banks: a bank's level reflects its own
+      communication style and language, so a Fed +0.3 and a BoJ +0.3 are not the same reading.</li>
+    <li>The holistic headline is emitted on a coarse anchored scale with a large neutral mass, so it
+      is best read as a direction and a trend, not a precise cardinal value; month-to-month moves
+      below about 0.1 are within the model's granularity.</li>
+    <li>This instance scores tone with
+      {% if request.app.state.services.offline %}the offline classifier and answers extractively
+      (the keyless demo); the production path uses the Gemini judge and generative answers.
+      {% else %}the Gemini holistic judge and answers generatively from retrieved excerpts (the
+      production path); a keyless offline demo with the local classifier also exists.{% endif %}</li>
   </ul>
   <p class="muted">
     Full numbers and the reproducible scripts:

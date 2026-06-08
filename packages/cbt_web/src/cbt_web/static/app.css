@@ -439,6 +439,18 @@ a.stat:hover { text-decoration: none; border-color: var(--accent-line); }
 .committee-row .score-chip { justify-self: end; }
 .faint-note { font-size: 0.78rem; color: var(--faint); }
 
+/* Honest abstention note in the policy-decomposition panel when the structured pipeline found no
+   policy-relevant sentences (shown instead of a misleading wall of +0.00 chips). */
+.abstain-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 3px solid var(--amber, #c08a2d);
+  background: rgba(192, 138, 45, 0.06);
+  color: var(--muted, #555);
+  font-size: 0.9rem;
+  border-radius: 4px;
+}
+
 /* Inline tone-history sparklines (committee rows); the whole sparkline links to the speaker */
 .spark-link { display: block; min-width: 0; }
 .spark-link:hover { text-decoration: none; }

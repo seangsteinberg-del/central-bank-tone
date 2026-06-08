@@ -29,8 +29,13 @@
       </nav>
 
       <div class="rail-status">
-        <div class="row"><span class="dot ok"></span> tone scored locally</div>
-        <div class="row"><span class="dot amber"></span> Gemini optional</div>
+        {% if request.app.state.services.offline %}
+        <div class="row"><span class="dot amber"></span> offline: local classifier</div>
+        <div class="row"><span class="dot amber"></span> answers extractive</div>
+        {% else %}
+        <div class="row"><span class="dot ok"></span> tone: Gemini judge</div>
+        <div class="row"><span class="dot ok"></span> answers: generative</div>
+        {% endif %}
         <div class="rail-build">central-bank-tone</div>
       </div>
     </aside>
@@ -50,10 +55,16 @@
       </main>
 
       <footer class="site-footer">
-        Tone is scored by a supervised classifier and a Gemini LLM judge, cross-checked against a
-        deterministic lexicon; a large disagreement is flagged for review. Answers are grounded in
-        retrieved speech excerpts and abstain when no source is relevant. See
-        <a href="/methodology">Methodology</a> for the measured accuracy.
+        {% if request.app.state.services.offline %}
+        Keyless demo: tone is an offline supervised classifier with a deterministic lexicon, and
+        answers are extractive excerpts. The production path uses the Gemini judge and generative
+        answers. See <a href="/methodology">Methodology</a> for the measured accuracy.
+        {% else %}
+        Tone is the Gemini holistic judge (the headline score), directionally cross-checked against
+        a supervised classifier (Fed only) and a deterministic lexicon; a majority disagreement is
+        flagged for review. Answers are generated from retrieved speech excerpts and abstain when no
+        source is relevant. See <a href="/methodology">Methodology</a> for the measured accuracy.
+        {% endif %}
       </footer>
     </div>
   </div>

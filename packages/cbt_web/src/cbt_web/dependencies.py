@@ -41,6 +41,9 @@ class Services:
     indexing_service: IndexingService
     qa_service: QaService
     committee_service: CommitteeService
+    # True when the keyless offline client scores tone and answers; False when the Gemini judge
+    # does. The chrome reads this so it never mislabels which backend produced the numbers on screen.
+    offline: bool = False
 
 
 def build_services(settings: Settings) -> Services:

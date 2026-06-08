@@ -254,9 +254,20 @@ def test_dashboard_masthead_is_a_data_derived_read_not_marketing(web_client: Tes
     _two_bank_corpus(web_client)
     response = web_client.get("/")
     assert response.status_code == 200
-    assert "tone index" in response.text  # the data-derived desk read, with the corpus tone index
+    assert "corpus mood" in response.text  # the data-derived desk read, honestly labelled
     assert "central-bank chorus" in response.text  # the computed one-line headline
     assert "speeches move markets" not in response.text  # the old landing-page pitch is gone
+
+
+@pytest.mark.web
+def test_chrome_reflects_the_live_gemini_backend_not_offline(web_client: TestClient) -> None:
+    # The served instance scores with Gemini, so the chrome must not claim the weaker offline mode;
+    # mislabelling it would tell a reader the numbers came from a local classifier (credibility bug).
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "Gemini judge" in response.text
+    assert "tone scored locally" not in response.text
+    assert "offline: local classifier" not in response.text
 
 
 @pytest.mark.web

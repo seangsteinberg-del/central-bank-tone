@@ -18,6 +18,7 @@ from fastapi import APIRouter, Form, Request, Response
 from pydantic import ValidationError
 
 from cbt_core import (
+    Aspect,
     CentralBank,
     CommitteeMovement,
     MemberMovement,
@@ -518,15 +519,9 @@ def _direction_word(delta: float | None, *, hawk: str, dove: str, flat: str) -> 
     return flat
 
 
-_ASPECT_ORDER = (
-    "inflation",
-    "growth",
-    "employment",
-    "balance_sheet",
-    "financial_stability",
-    "guidance",
-    "other",
-)
+# Derived from the schema spine so a new Aspect renders automatically and can never silently drop
+# off the speech page (CLAUDE.md section 2: do not re-encode the spine's knowledge).
+_ASPECT_ORDER = tuple(aspect.value for aspect in Aspect)
 
 
 @dataclass(frozen=True)
@@ -553,6 +548,10 @@ class StanceView:
     classifier_net: float
     lexicon_net: float
     aspects: tuple[AspectBar, ...]
+    # True when the structured pipeline found no policy-relevant sentences, so the decomposition is
+    # an honest abstention rather than a measured zero (ADR 0021; CLAUDE.md section 3). The template
+    # shows a note instead of a misleading wall of +0.00 chips.
+    structured_abstained: bool
 
 
 def _bar_side(score: float) -> str:
@@ -593,6 +592,9 @@ def _stance_view(stance: SpeechStance) -> StanceView:
         classifier_net=stance.classifier_net,
         lexicon_net=stance.lexicon_net,
         aspects=tuple(aspects),
+        structured_abstained=(
+            stance.rate_path == 0.0 and stance.structured_net == 0.0 and not stance.aspect_scores
+        ),
     )
 
 

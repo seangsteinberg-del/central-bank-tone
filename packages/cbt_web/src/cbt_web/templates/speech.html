@@ -30,6 +30,14 @@
   <span class="muted num" style="font-size:.82rem">structured pipeline</span>
 </div>
 <section class="panel decomp-panel">
+  {% if stance.structured_abstained %}
+  <p class="abstain-note">
+    The structured rate-path pipeline found no forward-looking policy guidance in this speech, so its
+    decomposition abstains rather than report a measured zero. The headline tone above reflects the
+    speech's overall stance, which for this speech is likely regulatory or structural rather than a
+    rate-path signal.
+  </p>
+  {% else %}
   <div class="decomp-head">
     <div class="decomp-rate">
       <div class="label">Rate-path intent <span class="muted">forward-looking</span></div>
@@ -46,7 +54,11 @@
       <div class="label">Cross-checks <span class="muted">do independent methods agree?</span></div>
       <div class="check-chips">
         <span class="score-chip {{ stance.structured_net | score_chip }}">sentence {{ "%+.2f" | format(stance.structured_net) }}</span>
+        {% if speech.central_bank.value == "federal_reserve" %}
         <span class="score-chip {{ stance.classifier_net | score_chip }}">classifier {{ "%+.2f" | format(stance.classifier_net) }}</span>
+        {% else %}
+        <span class="score-chip zero" title="The supervised classifier is FOMC-trained and does not transfer out of distribution (ADR 0013), so it is excluded for this bank">classifier n/a</span>
+        {% endif %}
         <span class="score-chip {{ stance.lexicon_net | score_chip }}">lexicon {{ "%+.2f" | format(stance.lexicon_net) }}</span>
       </div>
       <div class="decomp-uncert">
@@ -70,6 +82,7 @@
     </li>
     {% endfor %}
   </ul>
+  {% endif %}
   {% endif %}
 </section>
 {% endif %}

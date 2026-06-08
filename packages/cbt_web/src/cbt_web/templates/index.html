@@ -5,7 +5,7 @@
   {% if overview.read %}
   <h1>{{ overview.read.headline }}</h1>
   <div class="desk-tape">
-    <span class="tape-item">tone index
+    <span class="tape-item" title="A descriptive mean across every bank's speeches. Tone is only comparable within a committee, so read this as the corpus mood, not a cross-bank level.">corpus mood
       <span class="score-chip {{ overview.read.now | score_chip }}">{{ "%+.2f" | format(overview.read.now) }}</span>
     </span>
     <span class="tape-item">{{ overview.read.hawk_bank }} <span class="tape-dir hawk">most hawkish</span></span>
