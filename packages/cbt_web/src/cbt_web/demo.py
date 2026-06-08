@@ -25,6 +25,7 @@ from cbt_core import (
     IngestionService,
     InMemoryChunkRetriever,
     LlmClient,
+    LlmError,
     OfflineLlmClient,
     PersistentChunkRetriever,
     QaService,
@@ -98,7 +99,9 @@ class _DemoIndexer(IndexingService):
         speech = self._ingestion.get_speech(speech_id, actor=actor, correlation_id=correlation_id)
         chunks = chunk_text(speech.text, max_chars=self._max_chars, overlap=self._overlap)
         embeddings = self._llm.embed(chunks)
-        for index, (text, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
+        if len(embeddings) != len(chunks):
+            raise LlmError(f"embedding returned {len(embeddings)} vectors for {len(chunks)} chunks")
+        for index, (text, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
             self._retriever.add(
                 speaker_id=speech.speaker_id,
                 speech_id=speech.id,

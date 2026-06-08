@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cbt_core.domain.committee import CommitteeMovement, MemberMovement
 from cbt_core.domain.models import Speaker
+from cbt_core.exceptions import EntityNotFoundError
 from cbt_core.logging import get_logger, resolve_correlation_id
 from cbt_core.persistence.repositories import (
     SpeakerRepository,
@@ -72,7 +73,13 @@ class CommitteeService:
                 if movement is not None:
                     members.append(movement)
 
-        subject = next(member for member in members if member.is_subject)
+        subject = next((member for member in members if member.is_subject), None)
+        if subject is None:
+            # The subject always has a reading as of its own speech in normal ingestion (the tone
+            # observation is written atomically with the speech). Guard the data-integrity edge so a
+            # speech missing its observation fails as a typed CbtError, not a raw StopIteration that
+            # bypasses the adapter error handlers (CLAUDE.md section 3).
+            raise EntityNotFoundError("Committee reading for speech", speech_id)
         members.sort(key=_movement_sort_key)
         committee_tone = sum(member.current_score for member in members) / len(members)
         deltas = [member.delta for member in members if member.delta is not None]

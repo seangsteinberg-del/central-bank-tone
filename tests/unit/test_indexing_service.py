@@ -6,15 +6,17 @@ by the Postgres integration tests.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+from sqlalchemy.orm import Session, sessionmaker
 from tests._stubs import StubLlmClient
 
 from cbt_core import IndexingService, IngestionService, SpeakerService
 from cbt_core.domain.registry import CentralBank
-from cbt_core.exceptions import EntityNotFoundError
+from cbt_core.exceptions import EntityNotFoundError, LlmError
 from cbt_core.persistence.repositories import SpeechChunkRepository
 
 _LONG_TEXT = " ".join(f"word{i}" for i in range(300))
@@ -65,3 +67,25 @@ def test_index_unknown_speech_raises_not_found(
 ) -> None:
     with pytest.raises(EntityNotFoundError):
         indexing_service.index_speech(UUID(int=404))
+
+
+class _WrongCountEmbedder:
+    """An LLM stub whose embed returns the wrong number of vectors (a contract violation)."""
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Return zero vectors regardless of the chunk count, to trip the length guard."""
+        return []
+
+
+@pytest.mark.unit
+def test_index_speech_raises_llm_error_on_embedding_count_mismatch(
+    ingestion_service: IngestionService,
+    speaker_service: SpeakerService,
+    session_factory: sessionmaker[Session],
+) -> None:
+    # A wrong embedding count is an internal contract violation; it must raise the documented
+    # LlmError (a CbtError), not a bare ValueError from a strict zip that bypasses the handlers.
+    speech_id = _ingest(ingestion_service, speaker_service)
+    service = IndexingService(session_factory, _WrongCountEmbedder())  # type: ignore[arg-type]
+    with pytest.raises(LlmError):
+        service.index_speech(speech_id)

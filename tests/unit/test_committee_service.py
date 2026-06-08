@@ -8,6 +8,7 @@ how much they moved.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -22,7 +23,9 @@ from cbt_core import (
     SpeakerService,
     ToneLabel,
 )
+from cbt_core.domain.speech import Speech
 from cbt_core.exceptions import EntityNotFoundError
+from cbt_core.persistence.repositories import SpeechRepository
 from cbt_core.services._support import IdFactory
 
 
@@ -167,3 +170,35 @@ def test_single_reading_committee_has_no_overall_delta(
 def test_unknown_speech_raises_not_found(session_factory: sessionmaker[Session]) -> None:
     with pytest.raises(EntityNotFoundError):
         CommitteeService(session_factory).movement_for_speech(uuid4())
+
+
+def test_movement_raises_when_the_subject_has_no_reading_as_of_the_speech(
+    session_factory: sessionmaker[Session], id_factory: IdFactory
+) -> None:
+    # Defensive guard for a data-integrity edge: a speech whose speaker has no tone observation
+    # (e.g. the observation was lost during a failure-isolated fill) must fail as a typed CbtError,
+    # not a raw StopIteration that bypasses the adapter error handlers (CLAUDE.md section 3).
+    speaker = SpeakerService(session_factory, id_factory=id_factory).ensure_speaker(
+        name="Quiet Member", central_bank=_FED, role="Governor"
+    )
+    text = "an unscored speech that never produced a tone observation"
+    speech = Speech(
+        id=uuid4(),
+        speaker_id=speaker.id,
+        central_bank=_FED,
+        title="Untoned",
+        url="https://example.org/untoned",
+        delivered_at=datetime(2020, 3, 1, tzinfo=UTC),
+        text=text,
+        source_sha256=hashlib.sha256(text.encode()).hexdigest(),
+        summary="placeholder",
+        tone=ToneLabel.NEUTRAL,
+        score=0.0,
+        lexicon_score=0.0,
+        rationale="placeholder",
+    )
+    with session_factory() as session:
+        SpeechRepository(session).add(speech)
+        session.commit()
+    with pytest.raises(EntityNotFoundError):
+        CommitteeService(session_factory).movement_for_speech(speech.id)

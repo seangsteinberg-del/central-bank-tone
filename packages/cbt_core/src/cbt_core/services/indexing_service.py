@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session, sessionmaker
 
 from cbt_core.analysis.chunking import chunk_text
+from cbt_core.exceptions import LlmError
 from cbt_core.llm.client import LlmClient
 from cbt_core.logging import get_logger, resolve_correlation_id
 from cbt_core.persistence.repositories import SpeechChunkRepository, SpeechRepository
@@ -74,10 +75,15 @@ class IndexingService:
 
         chunks = chunk_text(speech.text, max_chars=self._max_chars, overlap=self._overlap)
         embeddings = self._llm.embed(chunks)
+        if len(embeddings) != len(chunks):
+            # Honour the documented contract with a typed CbtError rather than a bare ValueError
+            # from a strict zip (which would bypass the adapter error handlers, CLAUDE.md section 3).
+            raise LlmError(f"embedding returned {len(embeddings)} vectors for {len(chunks)} chunks")
 
         with self._session_factory() as session:
             repository = SpeechChunkRepository(session)
-            for index, (text, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
+            # Lengths are already validated equal above, so strict is unnecessary here.
+            for index, (text, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
                 repository.add_chunk(
                     chunk_id=self._id_factory(),
                     speech_id=speech_id,

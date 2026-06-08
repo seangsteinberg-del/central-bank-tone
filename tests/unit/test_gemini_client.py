@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
+from google.genai import errors as genai_errors
 from pydantic import SecretStr
 
 from cbt_core.analysis import Aspect, Horizon, StanceLabel
@@ -15,7 +16,12 @@ from cbt_core.domain.analysis import ToneAnalysis
 from cbt_core.domain.qa import EMBEDDING_DIM, RetrievedChunk
 from cbt_core.domain.tone import ToneLabel
 from cbt_core.exceptions import LlmError
-from cbt_core.llm.gemini import _EMBED_BATCH_SIZE, GeminiClient, build_gemini_client
+from cbt_core.llm.gemini import (
+    _EMBED_BATCH_SIZE,
+    GeminiClient,
+    _with_backoff,
+    build_gemini_client,
+)
 from cbt_core.settings import Settings
 
 _ANALYSIS = ToneAnalysis(
@@ -195,6 +201,21 @@ def test_embed_batches_requests_over_the_endpoint_limit() -> None:
 
     assert len(result) == len(texts)
     assert client.models.embed_content.call_count == 2  # one full batch plus the remainder
+
+
+# --- retry/backoff -------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_with_backoff_wraps_a_non_retryable_api_error_in_llm_error() -> None:
+    # A model failure that is non-retryable (or outlasts the retries) must reach adapters as an
+    # LlmError (a CbtError they translate), never a raw google APIError that bypasses their handlers
+    # and surfaces as an unhandled 500 mid-demo (CLAUDE.md section 3).
+    def _boom() -> None:
+        raise genai_errors.APIError(400, {"error": {"message": "bad request", "code": 400}})
+
+    with pytest.raises(LlmError):
+        _with_backoff(_boom, operation="analyze_tone")
 
 
 @pytest.mark.unit

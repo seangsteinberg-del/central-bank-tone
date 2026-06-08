@@ -60,8 +60,10 @@ def _with_backoff[T](call: Callable[[], T], *, operation: str) -> T:
         The call's result.
 
     Raises:
-        google.genai.errors.APIError: If the call keeps failing after the last attempt, or fails
-            with a non-retryable status.
+        LlmError: If the call fails with a non-retryable status or keeps failing after the last
+            attempt. The underlying ``google.genai`` error is chained as the cause. Wrapping it
+            here means every model failure (including a rate-limit that outlasts the retries)
+            reaches adapters as a ``CbtError`` they already translate, never as a raw 500.
     """
     for attempt in range(_MAX_ATTEMPTS):
         try:
@@ -69,7 +71,7 @@ def _with_backoff[T](call: Callable[[], T], *, operation: str) -> T:
         except genai_errors.APIError as exc:
             last_attempt = attempt == _MAX_ATTEMPTS - 1
             if exc.code not in _RETRYABLE_STATUS or last_attempt:
-                raise
+                raise LlmError(f"Gemini call '{operation}' failed (status {exc.code})") from exc
             delay = _BACKOFF_BASE_SECONDS * (2**attempt)
             _logger.warning(
                 "gemini_retry",
@@ -464,9 +466,12 @@ class LazyGeminiClient:
     def _client(self) -> LlmClient:
         """Return the underlying client, building it on first use."""
         if self._delegate is None:
+            # The google-genai construction failure type is version-dependent; wrap any of them as
+            # LlmError so a bad/empty key surfaces as a CbtError the adapters translate, never an
+            # unhandled non-CbtError (CLAUDE.md section 3).
             try:
                 self._delegate = self._builder(self._settings)
-            except ValueError as exc:
+            except Exception as exc:
                 raise LlmError(
                     "Gemini is not configured; set CBT_GEMINI_API_KEY to use model features"
                 ) from exc

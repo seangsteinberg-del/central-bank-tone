@@ -95,6 +95,16 @@ All notable changes to this project are documented in this file. The format foll
   capped at 12. Per-speech failures stay isolated and the fill remains idempotent and resumable.
 
 ### Fixed
+- Model and data-integrity failures now always surface as a typed `CbtError` the adapters
+  translate, never a raw exception that bypasses the error handlers and crashes a page (CLAUDE.md
+  section 3). Four hardening fixes: a Gemini call that is non-retryable or outlasts its retries
+  (for example a sustained rate-limit) is wrapped as `LlmError` in `_with_backoff` instead of
+  re-raising the raw `google.genai` `APIError`; `IndexingService.index_speech` (and the demo
+  indexer) raise the documented `LlmError` on an embedding-count mismatch instead of a bare
+  `ValueError` from a strict `zip`; `CommitteeService.movement_for_speech` raises
+  `EntityNotFoundError` instead of `StopIteration` when a speech has no committee reading as of its
+  delivery date; and `LazyGeminiClient` wraps any client-construction failure (not only
+  `ValueError`) as `LlmError`. Each path has a regression test.
 - Embedding the longest speeches (CLAUDE.md "no silent fallbacks"): `GeminiClient.embed` sent every
   chunk of a speech in one `embed_content` request, but the endpoint caps texts per request, so any
   speech that chunked past that cap (the longest central-bank speeches reach ~120 chunks) failed to
