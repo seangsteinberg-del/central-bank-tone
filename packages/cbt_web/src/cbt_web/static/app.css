@@ -439,6 +439,18 @@ a.stat:hover { text-decoration: none; border-color: var(--accent-line); }
 .committee-row .score-chip { justify-self: end; }
 .faint-note { font-size: 0.78rem; color: var(--faint); }
 
+/* htmx loading indicator: hidden until a request is in flight, then shown. Used by the Q&A boxes,
+   which call Gemini and take a few seconds, so the wait reads as "working", not "broken". */
+.htmx-indicator { opacity: 0; transition: opacity 0.15s ease-in; }
+.htmx-request.htmx-indicator, .htmx-request .htmx-indicator { opacity: 1; }
+.ask-spinner { display: inline-block; margin: 8px 0 0; font-size: 0.85rem; color: var(--faint); }
+.ask-spinner::before {
+  content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 7px;
+  vertical-align: -1px; border: 2px solid var(--line); border-top-color: var(--accent, #c0392b);
+  border-radius: 50%; animation: ask-spin 0.7s linear infinite;
+}
+@keyframes ask-spin { to { transform: rotate(360deg); } }
+
 /* Honest abstention note in the policy-decomposition panel when the structured pipeline found no
    policy-relevant sentences (shown instead of a misleading wall of +0.00 chips). */
 .abstain-note {

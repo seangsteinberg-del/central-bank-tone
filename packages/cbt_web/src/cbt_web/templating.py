@@ -43,6 +43,25 @@ def _format_date(value: datetime) -> str:
     return value.date().isoformat()
 
 
+def _clean_title(title: str, speaker_name: str) -> str:
+    """Strip a leading ``"<speaker name>: "`` that BIS Review titles prepend, to avoid redundancy.
+
+    On a speaker or speech page the speaker's name is already shown, so the prefix is noise. Only an
+    exact leading name match is removed, so a real title that merely contains a colon is left intact.
+
+    Args:
+        title: The raw speech title.
+        speaker_name: The speaker whose name may prefix the title.
+
+    Returns:
+        The title without the redundant leading speaker-name prefix.
+    """
+    prefix = f"{speaker_name}:"
+    if title.lower().startswith(prefix.lower()):
+        return title[len(prefix) :].strip() or title
+    return title
+
+
 def _year(value: datetime) -> str:
     """Format a datetime as its four-digit year."""
     return f"{value.year}"
@@ -99,6 +118,7 @@ def build_templates() -> Jinja2Templates:
     instance.env.filters["tone_class"] = _tone_class
     instance.env.filters["tone_label"] = _tone_label
     instance.env.filters["format_date"] = _format_date
+    instance.env.filters["clean_title"] = _clean_title
     instance.env.filters["year"] = _year
     instance.env.filters["score_chip"] = _score_chip
     instance.env.filters["tone_side"] = _tone_side

@@ -112,6 +112,13 @@ All notable changes to this project are documented in this file. The format foll
   capped at 12. Per-speech failures stay isolated and the fill remains idempotent and resumable.
 
 ### Changed
+- Demo UX polish: the corpus and per-speaker Q&A boxes now show a loading indicator while the
+  Gemini call runs (a multi-second wait previously looked like a hang); speech and speaker pages
+  strip the redundant ``"<speaker name>: "`` prefix BIS prepends to every title (a `clean_title`
+  filter, exact-prefix only so a real title with a colon is untouched); and joint-statement phantom
+  speakers (combined author rows like ``"Thomas Jordan; Martin Schlegel"`` the bulk source stored
+  verbatim) are hidden from the leaderboard, search, and committee boards by a presentation filter
+  (the underlying rows are untouched; a data backfill is the durable fix).
 - Demo honesty and credibility pass over the web UI (no part of the product should imply a
   stronger or different signal than it has): the chrome now reflects the backend actually serving
   the page (a new `Services.offline` flag drives the rail status and footer), so a live Gemini

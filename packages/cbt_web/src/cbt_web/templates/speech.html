@@ -9,7 +9,7 @@
     <span class="kv">{{ speech.delivered_at | format_date }}</span>
     <span class="kv"><a href="/speakers/{{ speaker.id }}">{{ speaker.name }}</a> &middot; {{ speaker.role }}</span>
   </div>
-  <h1>{{ speech.title }}</h1>
+  <h1>{{ speech.title | clean_title(speaker.name) }}</h1>
   <div class="speech-detail-tone">
     <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
     <span class="score-chip {{ speech.score | score_chip }}">model {{ "%+.2f" | format(speech.score) }}</span>

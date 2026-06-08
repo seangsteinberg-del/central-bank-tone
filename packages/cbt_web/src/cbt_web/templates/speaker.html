@@ -18,12 +18,14 @@
 
 <section class="panel">
   <h2>Ask about {{ speaker.name }}</h2>
-  <form class="ask-form" hx-post="/ui/speakers/{{ speaker.id }}/ask" hx-target="#speaker-answer" hx-disabled-elt="find button">
+  <form class="ask-form" hx-post="/ui/speakers/{{ speaker.id }}/ask" hx-target="#speaker-answer"
+        hx-disabled-elt="find button" hx-indicator="#speaker-spinner">
     <input type="text" name="question" maxlength="1000" required
            placeholder="e.g. How has the tone shifted on rate cuts?"
            aria-label="Ask a question about this speaker">
     <button type="submit">Ask</button>
   </form>
+  <span id="speaker-spinner" class="htmx-indicator ask-spinner">Reading {{ speaker.name }}'s speeches and answering with citations&hellip;</span>
   <div id="speaker-answer" class="answer-slot" aria-live="polite"></div>
 </section>
 
@@ -73,7 +75,7 @@
   {% for speech in speeches %}
   <li class="speech-card">
     <div class="speech-head">
-      <a class="speech-title" href="/speeches/{{ speech.id }}">{{ speech.title }}</a>
+      <a class="speech-title" href="/speeches/{{ speech.id }}">{{ speech.title | clean_title(speaker.name) }}</a>
       <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
       {% if speech.needs_review %}<span class="review-badge" title="The model and the lexicon disagreed on this speech">model/lexicon disagree</span>{% endif %}
     </div>

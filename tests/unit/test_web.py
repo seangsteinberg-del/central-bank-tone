@@ -24,6 +24,7 @@ from cbt_core import (
     QaService,
     Settings,
     SignalVsMarket,
+    Speaker,
     SpeakerService,
     ToneLabel,
     ToneObservation,
@@ -32,12 +33,14 @@ from cbt_core.domain.qa import RetrievedChunk
 from cbt_core.exceptions import LlmError
 from cbt_core.services._support import IdFactory
 from cbt_core.settings import Environment
+from cbt_web.templating import _clean_title
 from cbt_web.views import (
     MonthValue,
     PolicyMonitorRow,
     Spark,
     _bank_stance_series,
     _movers,
+    _solo_speakers,
     _spread_chart,
     _stance_delta,
     _svm_chart,
@@ -345,6 +348,27 @@ def test_svm_chart_builds_two_polylines_over_the_month_span() -> None:
 @pytest.mark.unit
 def test_svm_chart_is_none_when_too_sparse_to_plot() -> None:
     assert _svm_chart(_svm_fixture(1)) is None
+
+
+@pytest.mark.unit
+def test_clean_title_strips_only_a_redundant_speaker_name_prefix() -> None:
+    assert _clean_title("Jerome Powell: Economic outlook", "Jerome Powell") == "Economic outlook"
+    # A real title that merely contains a colon is left intact (no over-stripping).
+    assert _clean_title("Inflation: the road ahead", "Jerome Powell") == "Inflation: the road ahead"
+
+
+@pytest.mark.unit
+def test_solo_speakers_hides_joint_statement_rows() -> None:
+    solo = Speaker(
+        id=UUID(int=1), name="Jerome Powell", central_bank=CentralBank.FEDERAL_RESERVE, role="Chair"
+    )
+    joint = Speaker(
+        id=UUID(int=2),
+        name="Thomas Jordan; Martin Schlegel",
+        central_bank=CentralBank.SWISS_NATIONAL_BANK,
+        role="Board",
+    )
+    assert _solo_speakers([solo, joint]) == [solo]
 
 
 @pytest.mark.web

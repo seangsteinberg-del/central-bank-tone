@@ -18,12 +18,13 @@
     {{ overview.speeches }} speeches &middot; {{ overview.speakers }} speakers &middot; {{ overview.banks }} banks{% if overview.span_start and overview.span_end %} &middot; {{ overview.span_start | format_date }} &rarr; {{ overview.span_end | format_date }}{% endif %}
   </div>
   <form class="ask-form" hx-post="/ui/ask" hx-target="#corpus-answer" hx-disabled-elt="find button"
-        aria-label="Ask the corpus a natural-language question">
+        hx-indicator="#corpus-spinner" aria-label="Ask the corpus a natural-language question">
     <input type="text" name="question" maxlength="1000" required
            placeholder="Query the corpus: e.g. Which committees are turning hawkish on inflation?"
            aria-label="Ask the corpus">
     <button type="submit">Ask</button>
   </form>
+  <span id="corpus-spinner" class="htmx-indicator ask-spinner">Searching the corpus and answering with citations&hellip;</span>
   <div id="corpus-answer" class="answer-slot" aria-live="polite"></div>
 </section>
 

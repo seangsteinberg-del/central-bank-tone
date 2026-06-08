@@ -141,6 +141,17 @@ def _bank_code(bank: CentralBank) -> str:
     return _BANK_CODE.get(bank, bank.value[:4].upper())
 
 
+def _solo_speakers(speakers: list[Speaker]) -> list[Speaker]:
+    """Hide joint-statement phantom speakers (names with ';' or ',') from the UI listings.
+
+    The bulk source stored a joint speech's combined author field verbatim, creating one-speech
+    'speakers' like ``"Thomas Jordan; Martin Schlegel"`` that pollute the leaderboard, search, and
+    committee boards. This is a presentation filter only; the underlying rows are untouched (a data
+    backfill is the durable fix).
+    """
+    return [speaker for speaker in speakers if ";" not in speaker.name and "," not in speaker.name]
+
+
 def _month_index(key: tuple[int, int]) -> int:
     """Map a ``(year, month)`` to a comparable month ordinal for calendar arithmetic."""
     return key[0] * 12 + (key[1] - 1)
@@ -1410,7 +1421,7 @@ def index(
     ingestion: IngestionServiceDep,
 ) -> Response:
     """Render the dashboard: the thesis, corpus stats, leaderboards, recent speeches, and search."""
-    all_speakers = speakers.list_speakers()
+    all_speakers = _solo_speakers(speakers.list_speakers())
     overview = _corpus_overview(all_speakers, tone, ingestion)
     return templates.TemplateResponse(
         request,
@@ -1434,7 +1445,7 @@ def leaderboard(
     The bank toggle swaps this fragment. An unknown ``bank`` value is a bad input and returns 422
     (validated at the boundary, not silently defaulted).
     """
-    boards = _bank_boards(_collect_leaders(speakers.list_speakers(), tone))
+    boards = _bank_boards(_collect_leaders(_solo_speakers(speakers.list_speakers()), tone))
     try:
         board = _select_board(boards, bank)
     except ValueError:
@@ -1458,7 +1469,7 @@ def monitor(
     The column headers re-request this fragment with a ``sort`` key. An unknown key is a bad input
     and returns 422 (validated at the boundary, not silently defaulted).
     """
-    scan = _scan_tone(speakers.list_speakers(), tone)
+    scan = _scan_tone(_solo_speakers(speakers.list_speakers()), tone)
     key = sort or "stance"
     try:
         rows = _sort_monitor(scan.rows, key)
@@ -1484,7 +1495,7 @@ def spread(
     back to the widest current divergence pair. An unknown bank value is a bad input and returns
     422 (validated at the boundary).
     """
-    scan = _scan_tone(speakers.list_speakers(), tone)
+    scan = _scan_tone(_solo_speakers(speakers.list_speakers()), tone)
     try:
         chart = _spread_for(scan, a, b)
     except ValueError:
@@ -1646,7 +1657,9 @@ def signal_vs_market(request: Request, market: MarketSignalServiceDep) -> Respon
 @router.get("/ui/speakers")
 def search_speakers(request: Request, speakers: SpeakerServiceDep, q: str = "") -> Response:
     """Return the speaker-list fragment filtered by a name/institution query (htmx)."""
-    matched = [speaker for speaker in speakers.list_speakers() if _matches(speaker, q)]
+    matched = [
+        speaker for speaker in _solo_speakers(speakers.list_speakers()) if _matches(speaker, q)
+    ]
     return templates.TemplateResponse(
         request, "_speaker_list.html", {"speakers": matched, "query": q}
     )
