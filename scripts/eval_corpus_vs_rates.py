@@ -21,9 +21,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 from sqlalchemy import text
 
+from cbt_core.analysis.leadlag import block_bootstrap_ci, lead_pairs
+from cbt_core.domain.registry import CentralBank
 from cbt_core.persistence.engine import create_engine_from_settings
 from cbt_core.settings import Settings
 
@@ -32,10 +33,24 @@ _CACHE_DIR = _REPO_ROOT / "data" / "benchmarks"
 _REPORT = _REPO_ROOT / "docs" / "research" / "corpus-tone-vs-rates.md"
 _FRED = "https://fred.stlouisfed.org/graph/fredgraph.csv?id="
 _MIN_SPEECHES_PER_MONTH = 3
-_BOOTSTRAP = 2000
+_BOOTSTRAP = 10000  # deep family-wise tail needs many resamples to be stable (ADR 0023)
 _SEED = 0
 # Lead horizons in months: 0 is the same-month change, the rest test whether tone precedes the move.
 _HORIZONS = (0, 3, 6)
+# Cells tested at once: 2 indices (headline, rate-path) x 2 series x each horizon. The bootstrap
+# CIs are Bonferroni-corrected to this family size, so a "win" is multiple-testing-corrected.
+_FAMILY_SIZE = 2 * 2 * len(_HORIZONS)
+
+
+def _month_index(delivered_at: Any) -> int:
+    """Month index (``year * 12 + month - 1``) from a datetime or an ISO string.
+
+    Raw ``text()`` queries return a parsed ``datetime`` on PostgreSQL but the stored ISO string on
+    SQLite, so accept both rather than assuming the driver's type.
+    """
+    if isinstance(delivered_at, str):
+        return int(delivered_at[:4]) * 12 + (int(delivered_at[5:7]) - 1)
+    return delivered_at.year * 12 + (delivered_at.month - 1)
 
 
 def _monthly_mean(rows: list[Any]) -> tuple[dict[int, float], dict[int, int]]:
@@ -43,7 +58,7 @@ def _monthly_mean(rows: list[Any]) -> tuple[dict[int, float], dict[int, int]]:
     sums: dict[int, float] = {}
     counts: dict[int, int] = {}
     for delivered_at, value in rows:
-        index = delivered_at.year * 12 + (delivered_at.month - 1)
+        index = _month_index(delivered_at)
         sums[index] = sums.get(index, 0.0) + float(value)
         counts[index] = counts.get(index, 0) + 1
     series = {i: sums[i] / counts[i] for i in counts if counts[i] >= _MIN_SPEECHES_PER_MONTH}
@@ -56,20 +71,25 @@ def _fed_indices() -> tuple[dict[int, float], dict[int, float], dict[int, int]]:
     The headline is the stored holistic score on every speech; the rate-path is the structured
     pipeline's forward-looking measure on the speeches that have been scored (``speech_stance``).
     """
+    # Bind the enum's stored .value (lowercase, e.g. "federal_reserve"); a hardcoded uppercase
+    # literal silently matched zero rows on the live corpus (the ORM stores the enum value).
+    fed = CentralBank.FEDERAL_RESERVE.value
     engine = create_engine_from_settings(Settings())
     with engine.connect() as conn:
         headline_rows = conn.execute(
             text(
                 "select delivered_at, score from speech "
-                "where central_bank = 'FEDERAL_RESERVE' order by delivered_at"
-            )
+                "where central_bank = :bank order by delivered_at"
+            ),
+            {"bank": fed},
         ).all()
         rate_path_rows = conn.execute(
             text(
                 "select s.delivered_at, st.rate_path from speech s "
                 "join speech_stance st on st.speech_id = s.id "
-                "where s.central_bank = 'FEDERAL_RESERVE' order by s.delivered_at"
-            )
+                "where s.central_bank = :bank order by s.delivered_at"
+            ),
+            {"bank": fed},
         ).all()
     headline, counts = _monthly_mean(headline_rows)
     rate_path, _ = _monthly_mean(rate_path_rows)
@@ -100,59 +120,20 @@ def _fred_monthly(series_id: str) -> dict[int, float]:
     return series
 
 
-def _pearson(xs: np.ndarray, ys: np.ndarray) -> float:
-    """Pearson correlation of two equal-length series (0 when either is constant or too short)."""
-    if len(xs) < 3 or xs.std() == 0 or ys.std() == 0:
-        return 0.0
-    return float(np.corrcoef(xs, ys)[0, 1])
-
-
-def _bootstrap_ci(xs: np.ndarray, ys: np.ndarray) -> tuple[float, float, float]:
-    """Pearson point estimate and 95% bootstrap CI over paired resamples."""
-    rng = np.random.default_rng(_SEED)
-    n = len(xs)
-    point = _pearson(xs, ys)
-    if n < 3:
-        return point, point, point
-    samples = np.empty(_BOOTSTRAP)
-    for i in range(_BOOTSTRAP):
-        idx = rng.integers(0, n, n)
-        samples[i] = _pearson(xs[idx], ys[idx])
-    samples.sort()
-    return (
-        point,
-        float(samples[int(0.025 * _BOOTSTRAP)]),
-        float(samples[int(0.975 * _BOOTSTRAP) - 1]),
-    )
-
-
-def _lead_pairs(
-    tone: dict[int, float], rate: dict[int, float], horizon: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """Tone at month ``m`` paired with the rate change from ``m`` to ``m + horizon``.
-
-    A horizon of 0 uses the change over the prior month (contemporaneous co-movement); a positive
-    horizon is a lead test (does this month's tone precede the move over the next ``horizon`` months).
-    """
-    tones: list[float] = []
-    changes: list[float] = []
-    for month, value in tone.items():
-        start = month - 1 if horizon == 0 else month
-        end = month if horizon == 0 else month + horizon
-        if start in rate and end in rate:
-            tones.append(value)
-            changes.append(rate[end] - rate[start])
-    return np.array(tones), np.array(changes)
-
-
 def _row(
     index_label: str, series_label: str, index: dict[int, float], rate: dict[int, float]
 ) -> str:
-    """A markdown row: contemporaneous and forward correlations of one index with a rate series."""
+    """A markdown row: contemporaneous and forward correlations of one index with a rate series.
+
+    Each cell uses the shared family-wise, moving-block bootstrap (ADR 0023), so a cell whose
+    interval excludes zero is a multiple-testing-corrected result, not a naive per-cell one.
+    """
     cells = [index_label, series_label]
     for horizon in _HORIZONS:
-        xs, ys = _lead_pairs(index, rate, horizon)
-        r, lo, hi = _bootstrap_ci(xs, ys)
+        xs, ys = lead_pairs(index, rate, horizon)
+        r, lo, hi = block_bootstrap_ci(
+            xs, ys, samples=_BOOTSTRAP, seed=_SEED, horizon=horizon, family_size=_FAMILY_SIZE
+        )
         flag = "" if lo > 0 or hi < 0 else " (incl. 0)"
         cells.append(f"{r:+.2f} [{lo:+.2f}, {hi:+.2f}]{flag} (n={len(xs)})")
     return "| " + " | ".join(cells) + " |"
@@ -227,26 +208,33 @@ fed funds rate (FEDFUNDS) and the 2-year Treasury yield (GS2):
 - **headline** is the Gemini holistic whole-speech score (the production tone);
 - **rate-path** is the structured pipeline's forward-looking measure (policy intent only).
 
-Each cell is the Pearson correlation of the month's index with the rate change over that horizon,
-with a bootstrap 95% CI. The same-month column is contemporaneous co-movement; the +3 and +6 month
-columns are **lead** tests (does this month's reading precede higher rates over the next quarter or
-half-year), which is what a tradeable signal must show. If the rate-path leads as well as or better
-than the headline, the forward-intent decomposition is carrying genuine tradeable information.
+Each cell is the Pearson correlation of the month's index with the rate change over that horizon.
+The same-month column is contemporaneous co-movement; the +3 and +6 month columns are **lead** tests
+(does this month's reading precede higher rates over the next quarter or half-year), which is what a
+tradeable signal must show. If the rate-path leads as well as or better than the headline, the
+forward-intent decomposition is carrying genuine tradeable information.
+
+The interval on each cell is a **family-wise, moving-block bootstrap** CI (ADR 0023), deliberately
+stricter than a naive 95% interval. The block bootstrap respects the serial dependence of the
+overlapping forward windows (an i.i.d. resample would report intervals that are too narrow); the
+family-wise (Bonferroni) level controls the chance that any one of the {_FAMILY_SIZE} cells excludes
+zero by chance alone. So a cell marked without "(incl. 0)" is a multiple-testing-corrected result.
 {partial}
 {body}
 
 ## Honest reading
 
 This tests the Fed only, where free market ground truth exists; it does not validate the other seven
-institutions. The sample is monthly over a single hiking-and-cutting cycle, so standard errors are
-wide and a CI that includes zero is inconclusive, not evidence of no effect. A positive same-month
-correlation shows an index moves with the rate cycle; a positive forward correlation whose CI
-excludes zero is the stronger result, evidence the index carries information about where policy goes
-next, not only where it has been. The effective fed funds rate is highly persistent, so part of its
-forward correlation reflects a hawkish regime staying hawkish; the 2-year yield, which prices the
-path and reprices freely, is the cleaner lead test. This is correlation, not out-of-sample tradeable
-PnL, and the headline remains a single model's judgement; the cross-checks and the rate-path
-decomposition are what surface when to distrust it.
+institutions. The sample is monthly over a single hiking-and-cutting cycle, so even after the
+block-bootstrap and family-wise corrections the intervals are wide and a CI that includes zero is
+inconclusive, not evidence of no effect. A positive same-month correlation shows an index moves with
+the rate cycle; a positive forward correlation whose corrected CI excludes zero is the stronger
+result, evidence the index carries information about where policy goes next, not only where it has
+been. The effective fed funds rate is highly persistent, so part of its forward correlation reflects
+a hawkish regime staying hawkish; the 2-year yield, which prices the path and reprices freely, is the
+cleaner lead test. This is in-sample correlation, not out-of-sample tradeable PnL, and the headline
+remains a single model's judgement; the cross-checks and the rate-path decomposition are what surface
+when to distrust it.
 """
 
 

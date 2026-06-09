@@ -112,6 +112,21 @@ All notable changes to this project are documented in this file. The format foll
   capped at 12. Per-speech failures stay isolated and the fill remains idempotent and resumable.
 
 ### Changed
+- Corrected the Signal vs Market lead-lag inference (ADR 0023) so the displayed significance is not
+  stronger than the statistics justify (CLAUDE.md section 3). The per-cell 95% bootstrap is replaced
+  by a circular moving-block bootstrap (which respects the serial dependence of the overlapping
+  forward windows that an i.i.d. resample ignores) taken at a family-wise (Bonferroni) level across
+  all twelve tested cells, so a cell that "leads" is now a multiple-testing-corrected result. The
+  statistics moved to one shared module, `cbt_core/analysis/leadlag.py`, imported by both the service
+  and the eval script, so the served and published numbers are one implementation and cannot drift.
+  On the served 2023-2026 corpus the headline tone's lead on the effective fed funds rate survives the
+  correction at every horizon (+3mo +0.72, family-wise CI [+0.42, +0.85]); against the freely-repricing
+  2-year yield every interval includes zero, so no lead is claimed. `LeadCorrelation` gains a
+  `family_size` field; `methodology.html`, `signal_vs_market.html`, and `docs/research/corpus-tone-vs-rates.md`
+  now name the corrected method and the fed-funds-is-administered caveat.
+- The Policy Monitor now shows how long ago each committee last spoke (a freshness label such as
+  "3w ago" under the bank name), so a stale row is not read as current. The age is computed from an
+  injected clock via a pure `_age_label`, so its mapping is unit-tested without the wall clock.
 - The dashboard now leads with a scannable "Latest speeches" feed so a macro reader can skim the
   desk instead of opening each speech: every card shows the speaker and bank, the headline tone, a
   one-line summary, and the change in tone versus that speaker's previous speech (a coloured chip;
@@ -151,6 +166,12 @@ All notable changes to this project are documented in this file. The format foll
   divergence chart.
 
 ### Fixed
+- `scripts/eval_corpus_vs_rates.py` filtered Federal Reserve speeches on the uppercase enum *name*
+  (`'FEDERAL_RESERVE'`) while the ORM stores the enum *value* (`'federal_reserve'`), so against the
+  served SQLite corpus it matched zero rows and raised; the published rate numbers came from an
+  earlier run and could drift from the served data. It now binds `CentralBank.FEDERAL_RESERVE.value`
+  and parses the timestamp from either a datetime (PostgreSQL) or an ISO string (SQLite), so it runs
+  keyless on the live corpus and regenerates the report from real data (ADR 0023).
 - Model and data-integrity failures now always surface as a typed `CbtError` the adapters
   translate, never a raw exception that bypasses the error handlers and crashes a page (CLAUDE.md
   section 3). Four hardening fixes: a Gemini call that is non-retryable or outlasts its retries

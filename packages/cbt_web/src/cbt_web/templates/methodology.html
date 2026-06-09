@@ -53,8 +53,9 @@
   <p class="muted" style="margin-top:-4px">
     This measures the platform's <strong>own</strong> headline, on this corpus, against rates: a
     monthly Federal Reserve tone index from the stored scores vs FRED's fed funds rate and 2-year
-    Treasury yield (2023-2026, 39 months, 370 Fed speeches), each with a bootstrap 95% CI. These
-    figures are computed live on the <a href="/signal-vs-market">Signal vs Market</a> page.
+    Treasury yield (2023-2026, 39 months, 366 Fed speeches), each with a family-wise, moving-block
+    bootstrap CI (ADR 0023). These figures are computed live on the
+    <a href="/signal-vs-market">Signal vs Market</a> page.
   </p>
   <table class="method-table">
     <thead>
@@ -67,11 +68,14 @@
   </table>
   <div class="callout">
     On the effective fed funds rate the index does not just move with the cycle (same-month +0.67);
-    it <strong>leads</strong> it (+0.72 at three months, CI excludes zero). Against the
-    forward-looking 2-year yield the relationship is contemporaneous only (+0.27, CI includes zero)
-    and the three- and six-month leads are inconclusive on this 2023-2026 corpus, so we do not claim
-    the tone leads the 2-year here. This is correlation on the Fed alone, where free market ground
-    truth exists, not out-of-sample PnL. See <a href="/signal-vs-market">Signal vs Market</a> for the
+    it <strong>leads</strong> it (+0.72 at three months), and the lead survives the stricter test:
+    the family-wise, moving-block bootstrap interval is <span class="num">[+0.42, +0.85]</span>,
+    still clear of zero after correcting for the overlapping windows and the twelve simultaneous
+    tests (ADR 0023). Read it with care, though: fed funds is administered and telegraphed, so part
+    of a "lead" is a hawkish regime simply staying hawkish. Against the freely-repricing 2-year yield,
+    the cleaner test, the relationship is contemporaneous only (+0.27) and every interval includes
+    zero, so we do not claim the tone leads the 2-year. This is in-sample correlation on the Fed
+    alone, not out-of-sample PnL. See <a href="/signal-vs-market">Signal vs Market</a> for the
     rate-path index and the current divergence.
   </div>
 </section>

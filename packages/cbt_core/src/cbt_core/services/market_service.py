@@ -9,9 +9,10 @@ the tone trend and market repricing.
 It is a read-only service (it records nothing) and owns its read transaction, mirroring
 :class:`~cbt_core.services.committee_service.CommitteeService`. The rate data is a cached snapshot
 read from disk; the service never fetches from the network inside a request (refreshing the cache is
-the job of ``scripts/eval_corpus_vs_rates.py``). The pure statistics are copied from that script
-rather than imported, because scripts are off the package path and importing them would break the
-one-way package dependency (CLAUDE.md section 2).
+the job of ``scripts/eval_corpus_vs_rates.py``). The lead-lag statistics live in
+:mod:`cbt_core.analysis.leadlag` and are imported by BOTH this service and that script, so the
+served numbers and the published report are one implementation and cannot drift (ADR 0023; the
+divergence ADR 0022 fixed).
 
 Federal Reserve only: that is where free market ground truth exists. The 2-year yield is the
 market-path proxy (it reprices freely), in contrast to the highly persistent fed funds rate.
@@ -25,9 +26,9 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-import numpy as np
 from sqlalchemy.orm import Session, sessionmaker
 
+from cbt_core.analysis.leadlag import block_bootstrap_ci, lead_pairs
 from cbt_core.domain.market import (
     Divergence,
     IndexVsRate,
@@ -55,6 +56,9 @@ _RATE_SERIES: tuple[tuple[str, str, bool], ...] = (
     ("FEDFUNDS", "effective fed funds", False),
     ("GS2", "2-year Treasury", True),
 )
+# The two tone indices (headline, rate-path) times each rate series times each horizon: every cell
+# the page tests at once. The bootstrap CIs are Bonferroni-corrected to this family size (ADR 0023).
+_FAMILY_SIZE = 2 * len(_RATE_SERIES) * len(_HORIZONS)
 _TONE_FLAT_BAND = 0.05  # a 3-month tone change within this is "little changed"
 _RATE_FLAT_BP = 5.0  # a 3-month 2-year change within this many basis points is "little changed"
 
@@ -105,49 +109,6 @@ def _monthly_mean(
     return series, {i: counts[i] for i in series}
 
 
-def _pearson(xs: np.ndarray, ys: np.ndarray) -> float:
-    """Pearson correlation of two equal-length series (0 when either is constant or too short)."""
-    if len(xs) < 3 or xs.std() == 0 or ys.std() == 0:
-        return 0.0
-    return float(np.corrcoef(xs, ys)[0, 1])
-
-
-def _bootstrap_ci(
-    xs: np.ndarray, ys: np.ndarray, *, samples: int, seed: int
-) -> tuple[float, float, float]:
-    """Pearson point estimate and 95% bootstrap CI over paired resamples (deterministic seed)."""
-    rng = np.random.default_rng(seed)
-    n = len(xs)
-    point = _pearson(xs, ys)
-    if n < 3:
-        return point, point, point
-    drawn = np.empty(samples)
-    for i in range(samples):
-        idx = rng.integers(0, n, n)
-        drawn[i] = _pearson(xs[idx], ys[idx])
-    drawn.sort()
-    return point, float(drawn[int(0.025 * samples)]), float(drawn[int(0.975 * samples) - 1])
-
-
-def _lead_pairs(
-    tone: dict[int, float], rate: dict[int, float], horizon: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """Tone at month ``m`` paired with the rate change from ``m`` to ``m + horizon``.
-
-    A horizon of 0 uses the change over the prior month (contemporaneous); a positive horizon tests
-    whether this month's tone precedes the move over the next ``horizon`` months.
-    """
-    tones: list[float] = []
-    changes: list[float] = []
-    for month, value in tone.items():
-        start = month - 1 if horizon == 0 else month
-        end = month if horizon == 0 else month + horizon
-        if start in rate and end in rate:
-            tones.append(value)
-            changes.append(rate[end] - rate[start])
-    return np.array(tones), np.array(changes)
-
-
 def _month_label(index: int) -> str:
     """Render a month index as ``YYYY-MM``."""
     return f"{index // 12:04d}-{index % 12 + 1:02d}"
@@ -167,7 +128,7 @@ class MarketSignalService:
         *,
         benchmark_dir: Path,
         min_speeches_per_month: int = 3,
-        bootstrap_samples: int = 2000,
+        bootstrap_samples: int = 10000,
         seed: int = 0,
     ) -> None:
         """Build the service.
@@ -176,7 +137,8 @@ class MarketSignalService:
             session_factory: Factory for read sessions; the service owns the transaction.
             benchmark_dir: Directory holding the cached FRED CSVs (from settings, not the environment).
             min_speeches_per_month: Minimum speeches a month needs to enter an index.
-            bootstrap_samples: Resamples for the confidence interval.
+            bootstrap_samples: Resamples for the confidence interval. The default is large because the
+                family-wise (Bonferroni) tail is deep, so it needs many resamples to be stable.
             seed: RNG seed, so the intervals are reproducible.
         """
         self._session_factory = session_factory
@@ -319,11 +281,28 @@ class MarketSignalService:
     def _correlation(
         self, index: dict[int, float], rate: dict[int, float], horizon: int
     ) -> LeadCorrelation:
-        """The lead correlation of a tone index with a rate series at one horizon."""
-        xs, ys = _lead_pairs(index, rate, horizon)
-        r, lo, hi = _bootstrap_ci(xs, ys, samples=self._bootstrap, seed=self._seed)
+        """The lead correlation of a tone index with a rate series at one horizon (ADR 0023).
+
+        The CI is a circular moving-block bootstrap, corrected to a family-wise level across all
+        ``_FAMILY_SIZE`` tested cells, so ``excludes_zero`` is a multiple-testing-corrected
+        significance, not a naive per-cell interval.
+        """
+        xs, ys = lead_pairs(index, rate, horizon)
+        r, lo, hi = block_bootstrap_ci(
+            xs,
+            ys,
+            samples=self._bootstrap,
+            seed=self._seed,
+            horizon=horizon,
+            family_size=_FAMILY_SIZE,
+        )
         return LeadCorrelation(
-            horizon_months=horizon, r=_clamp(r), ci_low=_clamp(lo), ci_high=_clamp(hi), n=len(xs)
+            horizon_months=horizon,
+            r=_clamp(r),
+            ci_low=_clamp(lo),
+            ci_high=_clamp(hi),
+            n=len(xs),
+            family_size=_FAMILY_SIZE,
         )
 
     def _divergence(self, headline: dict[int, float], two_year: dict[int, float]) -> Divergence:

@@ -83,8 +83,10 @@
   </div>
   <p class="muted" style="margin-top:-4px">
     Each tone index against each rate series: same-month co-movement and whether tone leads the move
-    over the next 3 and 6 months, with a bootstrap 95% CI. An interval that includes zero is
-    inconclusive, not evidence of no effect.
+    over the next 3 and 6 months, with a family-wise, moving-block bootstrap 95% CI (ADR 0023): the
+    block bootstrap respects the overlapping windows and the family-wise level corrects for testing
+    all twelve cells at once. An interval that includes zero is inconclusive, not evidence of no
+    effect.
   </p>
   <table class="method-table">
     <thead>

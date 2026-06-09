@@ -10,7 +10,7 @@ requests when htmx (or JavaScript) is unavailable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -374,6 +374,7 @@ class PolicyMonitorRow:
     dove_count: int
     divided: bool  # the committee is materially split (both camps present and near-balanced)
     last_spoke: datetime | None
+    age: str | None  # how long ago the committee last spoke (e.g. "3w ago"), None if never
 
 
 @dataclass(frozen=True)
@@ -1004,8 +1005,39 @@ def _stance_delta(series: list[MonthValue], months: int) -> float | None:
     return round(latest.value - by_key[target], 2)
 
 
+def _age_label(last_spoke: datetime | None, as_of: datetime) -> str | None:
+    """A short freshness label for when a committee last spoke, relative to ``as_of``.
+
+    Answers the macro reader's first question on any monitor row: how stale is this. Returns
+    ``None`` when there is no reading. The clock is passed in (never read inline) so the mapping is
+    deterministic and unit-testable without the wall clock (CLAUDE.md section 5).
+
+    Args:
+        last_spoke: When the committee last spoke (timezone-aware), or ``None``.
+        as_of: The reference time to measure against (timezone-aware).
+
+    Returns:
+        A label such as ``"today"``, ``"5d ago"``, ``"3w ago"``, ``"4mo ago"``, ``"2y ago"``, or
+        ``None`` when ``last_spoke`` is ``None``.
+    """
+    if last_spoke is None:
+        return None
+    days = (as_of - last_spoke).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "1d ago"
+    if days < 14:
+        return f"{days}d ago"
+    if days < 60:
+        return f"{days // 7}w ago"
+    if days < 365:
+        return f"{days // 30}mo ago"
+    return f"{days // 365}y ago"
+
+
 def _policy_monitor_row(
-    board: BankBoard, series: list[MonthValue], last_spoke: datetime | None
+    board: BankBoard, series: list[MonthValue], last_spoke: datetime | None, *, as_of: datetime
 ) -> PolicyMonitorRow:
     """Build one Policy Monitor row from a bank's board and its committee-stance series."""
     now = series[-1].value if series else board.mean_score
@@ -1026,6 +1058,7 @@ def _policy_monitor_row(
         dove_count=board.dove_count,
         divided=divided,
         last_spoke=last_spoke,
+        age=_age_label(last_spoke, as_of),
     )
 
 
@@ -1181,7 +1214,7 @@ def _dedup_recent(rows: list[RecentSpeech], limit: int) -> list[RecentSpeech]:
     return deduped[:limit]
 
 
-def _scan_tone(speakers: list[Speaker], tone: ToneServiceDep) -> _ToneScan:
+def _scan_tone(speakers: list[Speaker], tone: ToneServiceDep, *, as_of: datetime) -> _ToneScan:
     """One pass over per-speaker tone: boards, the canonical stance series, and the monitor rows."""
     leaders: list[LeaderRow] = []
     members_by_bank: dict[CentralBank, list[list[ToneObservation]]] = {}
@@ -1205,7 +1238,9 @@ def _scan_tone(speakers: list[Speaker], tone: ToneServiceDep) -> _ToneScan:
     boards = _bank_boards(leaders)
     bank_series = {bank: _bank_stance_series(members) for bank, members in members_by_bank.items()}
     rows = [
-        _policy_monitor_row(board, bank_series.get(board.bank, []), last_spoke.get(board.bank))
+        _policy_monitor_row(
+            board, bank_series.get(board.bank, []), last_spoke.get(board.bank), as_of=as_of
+        )
         for board in boards
     ]
     return _ToneScan(
@@ -1218,7 +1253,11 @@ def _scan_tone(speakers: list[Speaker], tone: ToneServiceDep) -> _ToneScan:
 
 
 def _corpus_overview(
-    speakers: list[Speaker], tone: ToneServiceDep, ingestion: IngestionServiceDep
+    speakers: list[Speaker],
+    tone: ToneServiceDep,
+    ingestion: IngestionServiceDep,
+    *,
+    as_of: datetime,
 ) -> CorpusOverview:
     """Aggregate the dashboard: the Policy Monitor, market KPIs, movers, the recent feed, context.
 
@@ -1226,8 +1265,14 @@ def _corpus_overview(
     speeches adds the recent feed (with each speech's change versus the speaker's prior one), the
     flagged splits, and the span. This iterates the speakers (a small set in this single-operator
     tool); a high-cardinality deployment would push these aggregates into a dedicated read model.
+
+    Args:
+        speakers: The speakers to aggregate (already filtered to solo speakers).
+        tone: The tone service.
+        ingestion: The ingestion service, for the per-speaker speeches.
+        as_of: The reference time for the "last spoke" freshness labels (injected, not read inline).
     """
-    scan = _scan_tone(speakers, tone)
+    scan = _scan_tone(speakers, tone, as_of=as_of)
     speech_total = 0
     flagged = 0
     span_start: datetime | None = None
@@ -1294,7 +1339,7 @@ def index(
 ) -> Response:
     """Render the dashboard: the thesis, corpus stats, leaderboards, recent speeches, and search."""
     all_speakers = _solo_speakers(speakers.list_speakers())
-    overview = _corpus_overview(all_speakers, tone, ingestion)
+    overview = _corpus_overview(all_speakers, tone, ingestion, as_of=datetime.now(UTC))
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -1341,7 +1386,7 @@ def monitor(
     The column headers re-request this fragment with a ``sort`` key. An unknown key is a bad input
     and returns 422 (validated at the boundary, not silently defaulted).
     """
-    scan = _scan_tone(_solo_speakers(speakers.list_speakers()), tone)
+    scan = _scan_tone(_solo_speakers(speakers.list_speakers()), tone, as_of=datetime.now(UTC))
     key = sort or "stance"
     try:
         rows = _sort_monitor(scan.rows, key)

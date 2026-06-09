@@ -39,6 +39,7 @@ from cbt_web.views import (
     PolicyMonitorRow,
     RecentSpeech,
     Spark,
+    _age_label,
     _bank_stance_series,
     _dedup_recent,
     _movers,
@@ -77,6 +78,7 @@ def _mrow(bank: CentralBank, code: str, now: float, delta_1m: float | None) -> P
         dove_count=0,
         divided=False,
         last_spoke=None,
+        age=None,
     )
 
 
@@ -566,6 +568,20 @@ def test_monitor_shows_an_em_dash_when_there_is_no_prior_reading(web_client: Tes
     assert "—" in response.text  # the em dash: an honest "no prior reading", not a fake 0.00
 
 
+@pytest.mark.web
+def test_monitor_shows_a_freshness_label_for_when_the_committee_last_spoke(
+    web_client: TestClient,
+) -> None:
+    speaker_id = _register(web_client)
+    _ingest(web_client, speaker_id)
+    response = web_client.get("/ui/monitor")
+    assert response.status_code == 200
+    # The row carries a "last spoke" freshness label so a stale committee is not read as current.
+    # The exact age depends on the wall clock, so assert the element renders, not its value.
+    assert "mono-age" in response.text
+    assert "last spoke" in response.text  # the title tooltip with the exact date
+
+
 def test_bank_stance_series_carries_each_members_latest_reading_forward() -> None:
     # One member speaks in January (+0.20) and again in March (+0.60), silent in February.
     series = _bank_stance_series([[_obs(0.2, 2026, 1), _obs(0.6, 2026, 3)]])
@@ -679,6 +695,23 @@ def test_dedup_recent_keeps_the_newest_per_url_and_caps_to_the_limit() -> None:
     # Sorted newest first; the April row wins the duplicate URL, the January one is dropped.
     assert [r.speech.url for r in deduped] == ["https://x/dup", "https://x/other"]
     assert len(_dedup_recent(rows, limit=1)) == 1  # the cap is honoured
+
+
+def test_age_label_maps_elapsed_time_to_a_short_freshness_label() -> None:
+    now = datetime(2026, 6, 9, 12, tzinfo=UTC)
+    assert _age_label(None, now) is None  # no reading -> no label, never a fake "now"
+    assert _age_label(datetime(2026, 6, 9, 1, tzinfo=UTC), now) == "today"
+    assert _age_label(datetime(2026, 6, 8, 1, tzinfo=UTC), now) == "1d ago"
+    assert _age_label(datetime(2026, 6, 1, 12, tzinfo=UTC), now) == "8d ago"
+    assert _age_label(datetime(2026, 5, 12, 12, tzinfo=UTC), now) == "4w ago"
+    assert _age_label(datetime(2026, 1, 9, 12, tzinfo=UTC), now) == "5mo ago"
+    assert _age_label(datetime(2023, 6, 9, 12, tzinfo=UTC), now) == "3y ago"
+
+
+def test_age_label_reads_today_for_a_future_timestamp() -> None:
+    # Clock skew or a future-dated speech must not render a negative age.
+    now = datetime(2026, 6, 9, 12, tzinfo=UTC)
+    assert _age_label(datetime(2026, 6, 10, 12, tzinfo=UTC), now) == "today"
 
 
 @pytest.mark.web

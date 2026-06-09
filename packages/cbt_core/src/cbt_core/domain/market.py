@@ -21,13 +21,20 @@ from cbt_core.domain.registry import CentralBank
 class LeadCorrelation(BaseModel):
     """The correlation of a tone index with a rate series at one lead horizon.
 
+    The interval is a family-wise (Bonferroni) corrected, circular moving-block bootstrap CI
+    (ADR 0023): the block bootstrap respects the serial dependence of the overlapping forward
+    windows, and the family-wise level controls the chance that any one of the ``family_size``
+    tested cells excludes zero by chance. So ``excludes_zero`` here is a multiple-testing-corrected
+    significance, deliberately stricter than a naive per-cell 95% interval.
+
     Attributes:
         horizon_months: 0 for contemporaneous co-movement, a positive value for a lead test (does
             this month's tone precede the rate move over the next ``horizon_months`` months).
         r: Pearson correlation point estimate, in ``[-1.0, 1.0]``.
-        ci_low: Lower bound of the 95% bootstrap confidence interval.
-        ci_high: Upper bound of the 95% bootstrap confidence interval.
+        ci_low: Lower bound of the family-wise moving-block bootstrap CI.
+        ci_high: Upper bound of the family-wise moving-block bootstrap CI.
         n: Number of paired observations the correlation is computed over.
+        family_size: Number of cells tested together that the interval is Bonferroni-corrected for.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -37,10 +44,11 @@ class LeadCorrelation(BaseModel):
     ci_low: float = Field(ge=-1.0, le=1.0)
     ci_high: float = Field(ge=-1.0, le=1.0)
     n: int = Field(ge=0)
+    family_size: int = Field(ge=1)
 
     @property
     def excludes_zero(self) -> bool:
-        """True when the confidence interval excludes zero (a non-inconclusive result)."""
+        """True when the family-wise corrected interval excludes zero (a non-inconclusive result)."""
         return self.ci_low > 0.0 or self.ci_high < 0.0
 
 

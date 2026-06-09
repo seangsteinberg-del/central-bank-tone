@@ -628,6 +628,7 @@ a.stat:hover { text-decoration: none; border-color: var(--accent-line); }
 .monitor .mono-bank:hover { color: var(--accent); text-decoration: none; }
 .monitor .mono-mark { width: 9px; height: 9px; border-radius: 2px; flex: none; }
 .monitor .mono-name { display: block; color: var(--muted); font-size: 0.74rem; margin-top: 1px; }
+.monitor .mono-age { color: var(--faint); }
 .monitor .split-flag { color: var(--accent); }
 .monitor .col-stance { width: 184px; }
 .monitor .col-stance .move-track { height: 14px; }

@@ -23,12 +23,12 @@ from cbt_core import (
     SpeakerService,
     ToneLabel,
 )
+from cbt_core.analysis.leadlag import pearson
 from cbt_core.exceptions import BenchmarkUnavailableError, InsufficientDataError
 from cbt_core.services._support import IdFactory
 from cbt_core.services.market_service import (
     _aligned,
     _change_over,
-    _pearson,
     load_fred_monthly,
 )
 
@@ -163,4 +163,4 @@ def test_aligned_true_for_same_direction_false_for_opposite() -> None:
 def test_pearson_is_one_for_a_perfect_positive_relationship() -> None:
     xs = np.array([1.0, 2.0, 3.0, 4.0])
     ys = np.array([2.0, 4.0, 6.0, 8.0])
-    assert _pearson(xs, ys) == pytest.approx(1.0)
+    assert pearson(xs, ys) == pytest.approx(1.0)

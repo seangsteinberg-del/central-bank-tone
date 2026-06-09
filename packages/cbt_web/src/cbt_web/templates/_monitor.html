@@ -34,7 +34,7 @@
               <span class="mono-mark" style="background:var(--cat-{{ r.palette }})"></span>{{ r.code }}
               {% if r.divided %}<span class="split-flag" title="committee is split">&#10022;</span>{% endif %}
             </a>
-            <span class="mono-name">{{ r.label }}</span>
+            <span class="mono-name">{{ r.label }}{% if r.age %} <span class="mono-age" title="last spoke {{ r.last_spoke | format_date }}">&middot; {{ r.age }}</span>{% endif %}</span>
           </td>
           <td class="col-stance">
             <div class="move-track" role="img" aria-label="{{ r.label }} stance {{ '%+.2f' | format(r.now) }}">
