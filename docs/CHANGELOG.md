@@ -112,6 +112,13 @@ All notable changes to this project are documented in this file. The format foll
   capped at 12. Per-speech failures stay isolated and the fill remains idempotent and resumable.
 
 ### Changed
+- The dashboard now leads with a scannable "Latest speeches" feed so a macro reader can skim the
+  desk instead of opening each speech: every card shows the speaker and bank, the headline tone, a
+  one-line summary, and the change in tone versus that speaker's previous speech (a coloured chip;
+  the speaker's earliest speech reads "first analyzed speech" rather than a fabricated zero,
+  CLAUDE.md section 3). The feed is deduplicated by source URL, capped, and placed above the policy
+  charts. A `bank_label` Jinja filter was added; the speech-card summary is clamped so every row
+  stays a uniform, glanceable height.
 - Demo UX polish: the corpus and per-speaker Q&A boxes now show a loading indicator while the
   Gemini call runs (a multi-second wait previously looked like a hang); speech and speaker pages
   strip the redundant ``"<speaker name>: "`` prefix BIS prepends to every title (a `clean_title`
@@ -134,6 +141,14 @@ All notable changes to this project are documented in this file. The format foll
   duplicated abstention message on a grounded-answer card is removed. `_ASPECT_ORDER` in the web
   view is now derived from the `Aspect` schema spine so a new aspect can never silently drop off
   the speech page (CLAUDE.md section 2).
+
+### Removed
+- The relative-value tone-spread widget: the bank-pair "FX-style divergence" chart, its `/ui/spread`
+  htmx fragment, the `_spread.html` template, and the "Widest divergence" KPI card. It duplicated the
+  policy-divergence chart and the Signal vs Market view without surfacing a decision a macro reader
+  acts on, and the dashboard space now goes to the Latest speeches feed. The canonical per-bank
+  committee-stance series it read is unchanged and still drives the Policy Monitor and the
+  divergence chart.
 
 ### Fixed
 - Model and data-integrity failures now always surface as a typed `CbtError` the adapters

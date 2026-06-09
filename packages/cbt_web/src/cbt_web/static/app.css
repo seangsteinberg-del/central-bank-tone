@@ -660,19 +660,6 @@ a.stat:hover { text-decoration: none; border-color: var(--accent-line); }
   .mover-row .move-track { grid-column: 1 / -1; }
 }
 
-/* ----------------------------------------------------- Relative-value spread */
-.spread-tabs { margin-bottom: 12px; }
-.spread-read { font-size: 0.92rem; color: var(--ink); margin-bottom: 10px; font-family: var(--mono); }
-.spread-chart { width: 100%; height: auto; display: block; }
-.spread-chart .grid-line { stroke: var(--line); stroke-width: 1; }
-.spread-chart .zero-line { stroke: var(--line-2); stroke-width: 1.5; }
-.spread-chart .spread-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.spread-chart .spread-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 1; }
-.spread-chart .spread-dot.last { stroke: var(--head); stroke-width: 1.5; }
-.spread-chart .spread-now { fill: var(--accent-2); font-size: 12px; font-weight: 600; }
-.spread-chart .axis-label { fill: var(--faint); font-size: 11px; font-family: var(--mono); }
-.spread-chart .axis-label.tick { fill: var(--muted); }
-
 /* Model / lexicon disagreement panel */
 .split-list { list-style: none; margin: 0; padding: 0; }
 .split-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(48px, auto); align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -699,11 +686,18 @@ a.stat:hover { text-decoration: none; border-color: var(--accent-line); }
 .speech-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .speech-title { font-weight: 600; color: var(--ink); }
 a.speech-title:hover { color: var(--accent); }
-.speech-meta { color: var(--muted); font-size: 0.8rem; margin: 7px 0 8px; font-family: var(--mono); display: flex; gap: 14px; flex-wrap: wrap; }
+.speech-meta { color: var(--muted); font-size: 0.8rem; margin: 7px 0 8px; font-family: var(--mono); display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
 .speech-meta .kv b { color: var(--ink); }
 .speech-meta a.kv { color: var(--muted); }
 .speech-meta a.kv:hover { color: var(--accent); }
-.speech-summary { margin: 0; color: var(--text); }
+/* The tone change versus the speaker's previous speech: the scannable signal in the feed. */
+.change-chip { font-family: var(--mono); font-size: 0.76rem; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-2); white-space: nowrap; }
+.change-chip.hawk { color: var(--hawkish); background: var(--hawkish-soft); border-color: var(--hawkish-soft); }
+.change-chip.dove { color: var(--dovish); background: var(--dovish-soft); border-color: var(--dovish-soft); }
+.change-chip.flat { color: var(--muted); }
+.change-chip.none { color: var(--faint); border-style: dashed; }
+/* A scannable one-line summary, clamped so every card stays a uniform, glanceable height. */
+.speech-summary { margin: 0; color: var(--text); font-size: 0.9rem; line-height: 1.5; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 
 /* -------------------------------------------------------------- Speech detail */
 .speech-detail-head { margin-bottom: 16px; }

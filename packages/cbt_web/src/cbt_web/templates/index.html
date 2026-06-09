@@ -55,6 +55,36 @@
 </section>
 {% endif %}
 
+{% if overview.recent %}
+<div class="section-title" id="latest">
+  <h2>Latest speeches</h2>
+  <span class="faint-note">newest first &middot; the tone read, the change versus the speaker's prior remarks, and a one-line summary to scan instead of reading each speech</span>
+</div>
+<ul class="speech-list latest-list">
+  {% for r in overview.recent %}
+  <li class="speech-card">
+    <div class="speech-head">
+      <a class="speech-title" href="/speeches/{{ r.speech.id }}">{{ r.speech.title | clean_title(r.speaker.name) }}</a>
+      <span class="tone-badge {{ r.speech.tone | tone_class }}">{{ r.speech.tone | tone_label }}</span>
+    </div>
+    <p class="speech-meta">
+      <a class="kv" href="/speakers/{{ r.speaker.id }}">{{ r.speaker.name }}</a>
+      <span class="kv">{{ r.speaker.central_bank | bank_label }}</span>
+      <span class="kv">{{ r.speech.delivered_at | format_date }}</span>
+      <span class="kv">tone <b>{{ "%+.2f" | format(r.speech.score) }}</b></span>
+      {% if r.delta is not none %}
+      <span class="change-chip {{ r.side }}" title="change in headline tone versus this speaker's previous speech">{{ "%+.2f" | format(r.delta) }} {{ r.word }}</span>
+      {% else %}
+      <span class="change-chip none">{{ r.word }}</span>
+      {% endif %}
+      {% if r.speech.needs_review %}<span class="review-badge">model/lexicon disagree</span>{% endif %}
+    </p>
+    <p class="speech-summary">{{ r.speech.summary }}</p>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
 {% if overview.monitor %}
 <div class="section-title" id="monitor">
   <h2>Policy monitor</h2>
@@ -89,15 +119,6 @@
     {% endfor %}
   </ul>
 </section>
-{% endif %}
-
-{% if overview.spread %}
-<div class="section-title" id="spread">
-  <h2>Relative value</h2>
-  <span class="faint-note">tone spread between two banks over time, the FX-style divergence read</span>
-</div>
-{% set spread = overview.spread %}
-{% include "_spread.html" %}
 {% endif %}
 
 <section class="panel svm-cta">
@@ -162,26 +183,6 @@
   <span class="faint-note">tone compares only within a committee, not across banks</span>
 </div>
 {% include "_leaderboard.html" %}
-{% endif %}
-
-{% if overview.recent %}
-<div class="section-title"><h2>Recently analyzed</h2></div>
-<ul class="speech-list">
-  {% for speaker, speech in overview.recent %}
-  <li class="speech-card">
-    <div class="speech-head">
-      <a class="speech-title" href="/speeches/{{ speech.id }}">{{ speech.title }}</a>
-      <span class="tone-badge {{ speech.tone | tone_class }}">{{ speech.tone | tone_label }}</span>
-    </div>
-    <p class="speech-meta">
-      <a class="kv" href="/speakers/{{ speaker.id }}">{{ speaker.name }}</a>
-      <span class="kv">{{ speech.delivered_at | format_date }}</span>
-      <span class="kv">model <b>{{ "%+.2f" | format(speech.score) }}</b></span>
-      {% if speech.needs_review %}<span class="review-badge">model/lexicon disagree</span>{% endif %}
-    </p>
-  </li>
-  {% endfor %}
-</ul>
 {% endif %}
 
 {% if overview.tone_series %}

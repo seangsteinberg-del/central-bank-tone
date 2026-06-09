@@ -99,6 +99,9 @@ _BANK_CODE: dict[CentralBank, str] = {
 # How many model/lexicon disagreements to surface on the dashboard, largest split first.
 _MAX_FLAGGED = 8
 
+# How many recent speeches to surface in the "Latest speeches" feed (newest first, deduped).
+_RECENT_LIMIT = 10
+
 # Per-bank divergence chart geometry: its own wider box with a right gutter for the end-of-line
 # labels (one "CODE +0.xx" per bank, vertically de-collided), so a reader names a line on the
 # chart without tracing back to the legend or relying on colour alone.
@@ -113,18 +116,6 @@ _DIV_HALF = (_DIV_BOTTOM - _DIV_TOP) / 2.0
 _DIV_MAX_LABELS = 12
 _DIV_LABEL_GAP = 11.0  # minimum vertical spacing between adjacent end-of-line labels
 _DIV_LABEL_X = _DIV_W - _DIV_PAD_R + 10.0  # x where the end-of-line labels begin (right gutter)
-
-# Relative-value spread chart geometry (one bank's tone index minus another's, over time). Its
-# own y-axis (a spread can range wider than a single tone), drawn symmetrically around zero.
-_SPR_W = 720.0
-_SPR_H = 188.0
-_SPR_PAD_L = 40.0
-_SPR_PAD_R = 16.0
-_SPR_TOP = 14.0
-_SPR_BOTTOM = 150.0
-_SPR_MID = (_SPR_TOP + _SPR_BOTTOM) / 2.0
-_SPR_HALF = (_SPR_BOTTOM - _SPR_TOP) / 2.0
-_SPR_MAX_LABELS = 12
 
 # A committee-stance move smaller than this (between the compared periods) reads as flat, not a
 # turn; it is the rounding-noise band shared with the movement rows below.
@@ -414,47 +405,20 @@ class Mover:
 
 
 @dataclass(frozen=True)
-class SpreadPoint:
-    """One month of a relative-value spread (bank A's stance minus bank B's)."""
+class RecentSpeech:
+    """A recently analyzed speech for the scannable "Latest speeches" feed.
 
-    x: float
-    y: float
-    label: str
-    value: float
-    show_label: bool
+    The one row a macro reader skims instead of opening the speech: the tone read, a one-line
+    summary, and the change versus this speaker's previous speech (the tradeable delta). ``delta``
+    is ``None`` for a speaker's first analyzed speech, so the feed shows an honest "first reading"
+    rather than a fabricated zero move (CLAUDE.md section 3).
+    """
 
-
-@dataclass(frozen=True)
-class PairOption:
-    """A selectable bank pair for the relative-value spread toggle."""
-
-    a: CentralBank
-    b: CentralBank
-    label: str  # e.g. "FED - ECB"
-    selected: bool
-
-
-@dataclass(frozen=True)
-class SpreadChart:
-    """A relative-value tone spread between two banks over time (the FX-style divergence read)."""
-
-    width: float
-    height: float
-    pad_l: float
-    pad_r: float
-    zero_y: float
-    plot_top: float
-    plot_bottom: float
-    a_code: str
-    b_code: str
-    a_label: str
-    b_label: str
-    now: float  # the latest spread (a - b)
-    polyline: str
-    points: list[SpreadPoint]
-    ticks: list[ChartTick]
-    pairs: list[PairOption]
-    summary: str  # a one-line plain-language read of the current spread and its direction
+    speaker: Speaker
+    speech: Speech
+    delta: float | None  # headline-tone change versus this speaker's previous speech
+    side: str  # "hawk" / "dove" / "flat" / "none" (drives the change chip's colour)
+    word: str  # e.g. "more hawkish than last" / "in line with last" / "first analyzed speech"
 
 
 @dataclass(frozen=True)
@@ -473,9 +437,8 @@ class CorpusOverview:
     monitor: list[PolicyMonitorRow]
     monitor_sort: str
     movers: list[Mover]
-    spread: SpreadChart | None
     boards: list[BankBoard]
-    recent: list[tuple[Speaker, Speech]]
+    recent: list[RecentSpeech]
     tone_series: CorpusToneSeries | None
     bank_history: BankToneHistory | None
     flagged_splits: list[FlaggedSplit]
@@ -808,8 +771,8 @@ def _bank_tone_history(
 
     Each board becomes one line, plotted across the shared global month axis so the banks are
     directly comparable. The line follows the same canonical committee-stance series the Policy
-    Monitor reads (each month, the mean of members' most recent readings), so the chart, the
-    monitor trend, and the spreads all agree. Returns ``None`` when there is nothing to plot.
+    Monitor reads (each month, the mean of members' most recent readings), so the chart and the
+    monitor trend agree. Returns ``None`` when there is nothing to plot.
 
     Args:
         boards: The per-bank boards, already ordered (most populated first).
@@ -993,7 +956,7 @@ def _bank_stance_series(members: list[list[ToneObservation]]) -> list[MonthValue
     For each calendar month from the committee's first reading to its last, the stance is the mean
     across members of each member's most recent reading as of that month (a member who has not yet
     spoken is not counted). This standing-tone-over-time series is the canonical signal the Policy
-    Monitor, the divergence chart, and the spreads all read, so every view agrees.
+    Monitor and the divergence chart both read, so every view agrees.
 
     Args:
         members: Each member's observations (each list oldest first or not; sorted here).
@@ -1113,7 +1076,7 @@ def _movers(rows: list[PolicyMonitorRow]) -> list[Mover]:
     return movers
 
 
-def _monitor_kpis(rows: list[PolicyMonitorRow], spread: SpreadChart | None) -> list[KpiCard]:
+def _monitor_kpis(rows: list[PolicyMonitorRow]) -> list[KpiCard]:
     """Build the market-relevant headline cards for the top strip (skips ones with no data)."""
     if not rows:
         return []
@@ -1151,159 +1114,71 @@ def _monitor_kpis(rows: list[PolicyMonitorRow], spread: SpreadChart | None) -> l
                 href="#movers",
             )
         )
-    if spread is not None:
-        cards.append(
-            KpiCard(
-                label="Widest divergence",
-                headline=f"{spread.a_code}-{spread.b_code}",
-                value=f"{spread.now:+.2f}",
-                sub="FX divergence",
-                score=None,
-                href="#spread",
-            )
-        )
     return cards
 
 
-def _default_pair(rows: list[PolicyMonitorRow]) -> tuple[CentralBank, CentralBank] | None:
-    """The widest current divergence pair (most hawkish versus most dovish), or None."""
-    if len(rows) < 2:
-        return None
-    hawkish = max(rows, key=lambda r: r.now).bank
-    dovish = min(rows, key=lambda r: r.now).bank
-    return None if hawkish == dovish else (hawkish, dovish)
+def _recent_rows_for(speaker: Speaker, speeches: list[Speech]) -> list[RecentSpeech]:
+    """Turn a speaker's speeches (newest first) into feed rows carrying the change vs the prior one.
 
+    The change is the headline-tone delta against this speaker's immediately preceding speech (the
+    next item, since the list is newest first). The earliest speech has no prior, so its delta is
+    ``None`` and it reads as a "first analyzed speech" rather than a fabricated zero move (CLAUDE.md
+    section 3).
 
-_PRESET_PAIRS: tuple[tuple[CentralBank, CentralBank], ...] = (
-    (CentralBank.FEDERAL_RESERVE, CentralBank.ECB),
-    (CentralBank.FEDERAL_RESERVE, CentralBank.BANK_OF_JAPAN),
-    (CentralBank.ECB, CentralBank.BANK_OF_JAPAN),
-    (CentralBank.FEDERAL_RESERVE, CentralBank.BANK_OF_ENGLAND),
-)
+    Args:
+        speaker: The speaker who gave the speeches.
+        speeches: The speaker's speeches, most recent first (as the service returns them).
 
-
-def _pair_options(
-    rows: list[PolicyMonitorRow], selected_a: CentralBank, selected_b: CentralBank
-) -> list[PairOption]:
-    """Build the relative-value pair toggle: the widest pair first, then notable presets present."""
-    present = {row.bank for row in rows}
-    pairs: list[tuple[CentralBank, CentralBank]] = []
-    seen: set[frozenset[CentralBank]] = set()
-    widest = _default_pair(rows)
-    for pair in ([widest] if widest else []) + list(_PRESET_PAIRS):
-        a, b = pair
-        token = frozenset(pair)
-        if a in present and b in present and a != b and token not in seen:
-            pairs.append(pair)
-            seen.add(token)
-    target = frozenset((selected_a, selected_b))
-    return [
-        PairOption(
-            a=a,
-            b=b,
-            label=f"{_bank_code(a)} - {_bank_code(b)}",
-            selected=frozenset((a, b)) == target,
+    Returns:
+        One :class:`RecentSpeech` per speech, in the same order.
+    """
+    rows: list[RecentSpeech] = []
+    for index, speech in enumerate(speeches):
+        prior = speeches[index + 1] if index + 1 < len(speeches) else None
+        if prior is None:
+            rows.append(
+                RecentSpeech(
+                    speaker=speaker,
+                    speech=speech,
+                    delta=None,
+                    side="none",
+                    word="first analyzed speech",
+                )
+            )
+            continue
+        delta = round(speech.score - prior.score, 2)
+        word = (
+            _direction_word(
+                delta,
+                hawk="more hawkish than last",
+                dove="more dovish than last",
+                flat="in line with last",
+            )
+            or "in line with last"
         )
-        for a, b in pairs
-    ]
-
-
-def _spread_chart(
-    series_a: list[MonthValue],
-    series_b: list[MonthValue],
-    bank_a: CentralBank,
-    bank_b: CentralBank,
-    pairs: list[PairOption],
-) -> SpreadChart | None:
-    """Build the relative-value tone spread (A minus B) over their common months, or None."""
-    a_by = {mv.key: mv.value for mv in series_a}
-    b_by = {mv.key: mv.value for mv in series_b}
-    common = sorted(set(a_by) & set(b_by))
-    if not common:
-        return None
-    values = [round(a_by[key] - b_by[key], 4) for key in common]
-    bound = 0.5
-    while bound < max(abs(value) for value in values):
-        bound += 0.5
-    span = _SPR_W - _SPR_PAD_L - _SPR_PAD_R
-    count = len(common)
-    step = max(1, round(count / _SPR_MAX_LABELS))
-
-    def _y(value: float) -> float:
-        return round(_SPR_MID - max(-bound, min(bound, value)) / bound * _SPR_HALF, 1)
-
-    points: list[SpreadPoint] = []
-    for index, key in enumerate(common):
-        x = _SPR_PAD_L + (span / 2.0 if count == 1 else span * index / (count - 1))
-        points.append(
-            SpreadPoint(
-                x=round(x, 1),
-                y=_y(values[index]),
-                label=f"{key[1]:02d}/{str(key[0])[2:]}",
-                value=values[index],
-                show_label=count <= _SPR_MAX_LABELS or index % step == 0,
+        rows.append(
+            RecentSpeech(
+                speaker=speaker, speech=speech, delta=delta, side=_bar_side(delta), word=word
             )
         )
-    ticks = [
-        ChartTick(y=_y(level), label="0" if level == 0.0 else f"{level:+.1f}", zero=level == 0.0)
-        for level in (bound, 0.0, -bound)
-    ]
-    now = values[-1]
-    code_a, code_b = _bank_code(bank_a), _bank_code(bank_b)
-    if now > _TURN_BAND:
-        relation = f"{code_a} is {abs(now):.2f} above {code_b}"
-    elif now < -_TURN_BAND:
-        relation = f"{code_a} is {abs(now):.2f} below {code_b}"
-    else:
-        relation = f"{code_a} is in line with {code_b}"
-    drift = ""
-    prior_key = _month_minus(common[-1], 3)
-    if prior_key in a_by and prior_key in b_by:
-        prior = a_by[prior_key] - b_by[prior_key]
-        if abs(now) > abs(prior) + _TURN_BAND:
-            drift = ", widening"
-        elif abs(now) < abs(prior) - _TURN_BAND:
-            drift = ", narrowing"
-        else:
-            drift = ", steady"
-    return SpreadChart(
-        width=_SPR_W,
-        height=_SPR_H,
-        pad_l=_SPR_PAD_L,
-        pad_r=_SPR_PAD_R,
-        zero_y=_SPR_MID,
-        plot_top=_SPR_TOP,
-        plot_bottom=_SPR_BOTTOM,
-        a_code=code_a,
-        b_code=code_b,
-        a_label=bank_a.value.replace("_", " ").title(),
-        b_label=bank_b.value.replace("_", " ").title(),
-        now=round(now, 2),
-        polyline=" ".join(f"{p.x},{p.y}" for p in points),
-        points=points,
-        ticks=ticks,
-        pairs=pairs,
-        summary=f"{relation}{drift}.",
-    )
+    return rows
 
 
-def _spread_for(scan: _ToneScan, bank_a: str, bank_b: str) -> SpreadChart | None:
-    """Resolve the requested (or default widest) pair and build its spread chart.
+def _dedup_recent(rows: list[RecentSpeech], limit: int) -> list[RecentSpeech]:
+    """Sort recent rows newest first, drop repeat source URLs, and cap to ``limit``.
 
-    Raises:
-        ValueError: If a supplied bank value is not a known central bank (a 4xx at the boundary).
+    Deduplicates by source URL (keeping the most recent occurrence) so a speech the source listed
+    under more than one author appears once in the feed rather than several times.
     """
-    if not scan.rows:
-        return None
-    if bank_a or bank_b:
-        a, b = CentralBank(bank_a), CentralBank(bank_b)
-    else:
-        pair = _default_pair(scan.rows)
-        if pair is None:
-            return None
-        a, b = pair
-    pairs = _pair_options(scan.rows, a, b)
-    return _spread_chart(scan.bank_series.get(a, []), scan.bank_series.get(b, []), a, b, pairs)
+    ordered = sorted(rows, key=lambda row: row.speech.delivered_at, reverse=True)
+    seen: set[str] = set()
+    deduped: list[RecentSpeech] = []
+    for row in ordered:
+        if row.speech.url in seen:
+            continue
+        seen.add(row.speech.url)
+        deduped.append(row)
+    return deduped[:limit]
 
 
 def _scan_tone(speakers: list[Speaker], tone: ToneServiceDep) -> _ToneScan:
@@ -1345,25 +1220,25 @@ def _scan_tone(speakers: list[Speaker], tone: ToneServiceDep) -> _ToneScan:
 def _corpus_overview(
     speakers: list[Speaker], tone: ToneServiceDep, ingestion: IngestionServiceDep
 ) -> CorpusOverview:
-    """Aggregate the dashboard: the Policy Monitor, market KPIs, movers, spreads, and context.
+    """Aggregate the dashboard: the Policy Monitor, market KPIs, movers, the recent feed, context.
 
     One tone pass builds the canonical per-bank stance series and the monitor; a second pass over
-    speeches adds the recent flow, the flagged splits, and the span. This iterates the speakers (a
-    small set in this single-operator tool); a high-cardinality deployment would push these
-    aggregates into a dedicated read model.
+    speeches adds the recent feed (with each speech's change versus the speaker's prior one), the
+    flagged splits, and the span. This iterates the speakers (a small set in this single-operator
+    tool); a high-cardinality deployment would push these aggregates into a dedicated read model.
     """
     scan = _scan_tone(speakers, tone)
     speech_total = 0
     flagged = 0
     span_start: datetime | None = None
     span_end: datetime | None = None
-    recent: list[tuple[Speaker, Speech]] = []
+    recent_rows: list[RecentSpeech] = []
     flagged_splits: list[FlaggedSplit] = []
     for speaker in speakers:
         speeches = ingestion.list_speeches(speaker.id)
         speech_total += len(speeches)
         flagged += sum(1 for speech in speeches if speech.needs_review)
-        recent.extend((speaker, speech) for speech in speeches)
+        recent_rows.extend(_recent_rows_for(speaker, speeches))
         flagged_splits.extend(
             FlaggedSplit(
                 speaker=speaker, speech=speech, gap=abs(speech.score - speech.lexicon_score)
@@ -1375,9 +1250,7 @@ def _corpus_overview(
             delivered = speech.delivered_at
             span_start = delivered if span_start is None else min(span_start, delivered)
             span_end = delivered if span_end is None else max(span_end, delivered)
-    recent.sort(key=lambda pair: pair[1].delivered_at, reverse=True)
     flagged_splits.sort(key=lambda split: split.gap, reverse=True)
-    spread = _spread_for(scan, "", "")
     return CorpusOverview(
         speakers=len(speakers),
         speeches=speech_total,
@@ -1387,13 +1260,12 @@ def _corpus_overview(
         span_start=span_start,
         span_end=span_end,
         read=_desk_read(scan.buckets, scan.boards),
-        kpis=_monitor_kpis(scan.rows, spread),
+        kpis=_monitor_kpis(scan.rows),
         monitor=_sort_monitor(scan.rows, "stance"),
         monitor_sort="stance",
         movers=_movers(scan.rows),
-        spread=spread,
         boards=scan.boards,
-        recent=recent[:6],
+        recent=_dedup_recent(recent_rows, _RECENT_LIMIT),
         tone_series=_tone_series_from(scan.buckets),
         bank_history=_bank_tone_history(scan.boards, scan.bank_series, sorted(scan.buckets)),
         flagged_splits=flagged_splits[:_MAX_FLAGGED],
@@ -1483,29 +1355,6 @@ def monitor(
     return templates.TemplateResponse(
         request, "_monitor.html", {"monitor": rows, "monitor_sort": key}
     )
-
-
-@router.get("/ui/spread")
-def spread(
-    request: Request, speakers: SpeakerServiceDep, tone: ToneServiceDep, a: str = "", b: str = ""
-) -> Response:
-    """Return the relative-value spread fragment for a bank pair (htmx).
-
-    The pair toggle re-requests this fragment with ``a`` and ``b`` bank values; empty values fall
-    back to the widest current divergence pair. An unknown bank value is a bad input and returns
-    422 (validated at the boundary).
-    """
-    scan = _scan_tone(_solo_speakers(speakers.list_speakers()), tone)
-    try:
-        chart = _spread_for(scan, a, b)
-    except ValueError:
-        return templates.TemplateResponse(
-            request,
-            "_spread.html",
-            {"spread": None, "error": "Unknown central bank."},
-            status_code=422,
-        )
-    return templates.TemplateResponse(request, "_spread.html", {"spread": chart})
 
 
 @router.get("/methodology")

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
-from cbt_core import ToneLabel
+from cbt_core import CentralBank, ToneLabel
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
@@ -36,6 +36,11 @@ def _tone_class(tone: ToneLabel) -> str:
 def _tone_label(tone: ToneLabel) -> str:
     """Return a human-readable label for a tone (for example ``Hawkish``)."""
     return tone.value.replace("_", " ").title()
+
+
+def _bank_label(bank: CentralBank) -> str:
+    """Return a human-readable label for a central bank (for example ``Federal Reserve``)."""
+    return bank.value.replace("_", " ").title()
 
 
 def _format_date(value: datetime) -> str:
@@ -117,6 +122,7 @@ def build_templates() -> Jinja2Templates:
     instance = Jinja2Templates(directory=str(TEMPLATES_DIR))
     instance.env.filters["tone_class"] = _tone_class
     instance.env.filters["tone_label"] = _tone_label
+    instance.env.filters["bank_label"] = _bank_label
     instance.env.filters["format_date"] = _format_date
     instance.env.filters["clean_title"] = _clean_title
     instance.env.filters["year"] = _year

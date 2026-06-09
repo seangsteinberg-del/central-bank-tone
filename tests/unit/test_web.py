@@ -26,6 +26,7 @@ from cbt_core import (
     SignalVsMarket,
     Speaker,
     SpeakerService,
+    Speech,
     ToneLabel,
     ToneObservation,
 )
@@ -35,13 +36,14 @@ from cbt_core.services._support import IdFactory
 from cbt_core.settings import Environment
 from cbt_web.templating import _clean_title
 from cbt_web.views import (
-    MonthValue,
     PolicyMonitorRow,
+    RecentSpeech,
     Spark,
     _bank_stance_series,
+    _dedup_recent,
     _movers,
+    _recent_rows_for,
     _solo_speakers,
-    _spread_chart,
     _stance_delta,
     _svm_chart,
 )
@@ -60,7 +62,7 @@ def _obs(score: float, year: int, month: int) -> ToneObservation:
 
 
 def _mrow(bank: CentralBank, code: str, now: float, delta_1m: float | None) -> PolicyMonitorRow:
-    """Build a minimal monitor row for unit-testing the movers/spread aggregation."""
+    """Build a minimal monitor row for unit-testing the movers aggregation."""
     return PolicyMonitorRow(
         bank=bank,
         label=bank.value.replace("_", " ").title(),
@@ -162,10 +164,40 @@ def test_dashboard_shows_policy_monitor_and_recent_speech(web_client: TestClient
     _ingest(web_client, speaker_id)
     response = web_client.get("/")
     assert response.status_code == 200
-    assert "Policy monitor" in response.text  # the monitor matrix is the dashboard hero
+    assert "Policy monitor" in response.text  # the monitor matrix is on the dashboard
     assert "Most hawkish" in response.text  # the market-KPI strip replaced the vanity stats
-    assert "Recently analyzed" in response.text  # the recent-speeches section
+    assert "Latest speeches" in response.text  # the scannable recent-speeches feed
     assert "On the outlook" in response.text  # the ingested speech surfaced on the dashboard
+    assert "first analyzed speech" in response.text  # one speech has no prior, so no fake change
+
+
+@pytest.mark.web
+def test_latest_feed_shows_a_summary_and_the_change_versus_the_prior_speech(
+    web_client: TestClient,
+) -> None:
+    speaker_id = _register(web_client)
+    _ingest_named(
+        web_client,
+        speaker_id,
+        title="First remarks",
+        url="https://example.org/a/1",
+        delivered_on="2026-01-10",
+        text="we will keep policy restrictive to bring inflation down",
+    )
+    _ingest_named(
+        web_client,
+        speaker_id,
+        title="Second remarks",
+        url="https://example.org/a/2",
+        delivered_on="2026-03-10",
+        text="the committee now sees room to ease as growth slows and prices cool",
+    )
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "Latest speeches" in response.text
+    assert "speech-summary" in response.text  # each card carries a one-line summary to scan
+    assert "change-chip" in response.text  # the newer speech shows its change versus the prior
+    assert "first analyzed speech" in response.text  # the earliest speech has no fabricated change
 
 
 @pytest.mark.web
@@ -534,17 +566,6 @@ def test_monitor_shows_an_em_dash_when_there_is_no_prior_reading(web_client: Tes
     assert "—" in response.text  # the em dash: an honest "no prior reading", not a fake 0.00
 
 
-@pytest.mark.web
-def test_spread_fragment_builds_a_pair_and_rejects_an_unknown_bank(web_client: TestClient) -> None:
-    _two_bank_corpus(web_client)
-    ok = web_client.get("/ui/spread", params={"a": "federal_reserve", "b": "ecb"})
-    assert ok.status_code == 200
-    assert "spread-board" in ok.text
-    assert "spread-chart" in ok.text  # the relative-value chart rendered
-    bad = web_client.get("/ui/spread", params={"a": "not_a_bank", "b": "ecb"})
-    assert bad.status_code == 422
-
-
 def test_bank_stance_series_carries_each_members_latest_reading_forward() -> None:
     # One member speaks in January (+0.20) and again in March (+0.60), silent in February.
     series = _bank_stance_series([[_obs(0.2, 2026, 1), _obs(0.6, 2026, 3)]])
@@ -583,16 +604,81 @@ def test_movers_orders_by_size_and_labels_the_direction() -> None:
     assert movers[0].prev == 0.15  # now (-0.30) minus delta (-0.45)
 
 
-def test_spread_chart_reads_a_minus_b_and_describes_its_direction() -> None:
-    series_a = [MonthValue((2026, m), v) for m, v in [(1, 0.1), (2, 0.2), (3, 0.4), (4, 0.5)]]
-    series_b = [MonthValue((2026, m), 0.1) for m in (1, 2, 3, 4)]
-    chart = _spread_chart(series_a, series_b, CentralBank.FEDERAL_RESERVE, CentralBank.ECB, [])
-    assert chart is not None
-    assert chart.now == 0.4  # 0.5 minus 0.1
-    assert chart.a_code == "FED"
-    assert chart.b_code == "ECB"
-    assert "FED is 0.40 above ECB" in chart.summary
-    assert "widening" in chart.summary  # the spread was 0.0 three months earlier
+def _speaker(name: str = "Jerome Powell") -> Speaker:
+    """Build a minimal speaker for unit-testing the recent-feed maths directly."""
+    return Speaker(
+        id=UUID(int=0), name=name, central_bank=CentralBank.FEDERAL_RESERVE, role="Chair"
+    )
+
+
+def _speech(score: float, *, year: int, month: int, url: str) -> Speech:
+    """Build a minimal scored speech for unit-testing the recent-feed maths directly."""
+    return Speech(
+        id=UUID(int=0),
+        speaker_id=UUID(int=0),
+        central_bank=CentralBank.FEDERAL_RESERVE,
+        title="Remarks on the outlook",
+        url=url,
+        delivered_at=datetime(year, month, 15, tzinfo=UTC),
+        text="placeholder speech text",
+        source_sha256="a" * 64,
+        summary="A concise one-line summary of the remarks.",
+        tone=ToneLabel.NEUTRAL,
+        score=score,
+        lexicon_score=0.0,
+        rationale="because the data warranted it",
+    )
+
+
+def test_recent_rows_for_reports_the_change_versus_the_speakers_prior_speech() -> None:
+    speaker = _speaker()
+    # Newest first, as the service returns them: Mar +0.60, Feb +0.20, Jan +0.20.
+    speeches = [
+        _speech(0.60, year=2026, month=3, url="https://x/3"),
+        _speech(0.20, year=2026, month=2, url="https://x/2"),
+        _speech(0.20, year=2026, month=1, url="https://x/1"),
+    ]
+    rows = _recent_rows_for(speaker, speeches)
+    assert rows[0].delta == 0.40  # March 0.60 minus February 0.20
+    assert rows[0].side == "hawk"
+    assert "more hawkish" in rows[0].word
+    assert rows[1].delta == 0.0  # February equals January: a measured no-change
+    assert rows[1].side == "flat"
+    assert "in line" in rows[1].word
+    assert rows[2].delta is None  # the earliest speech has no prior to compare against
+    assert rows[2].side == "none"
+    assert rows[2].word == "first analyzed speech"  # honest, not a fabricated 0.00
+
+
+def test_dedup_recent_keeps_the_newest_per_url_and_caps_to_the_limit() -> None:
+    speaker = _speaker()
+    rows = [
+        RecentSpeech(
+            speaker=speaker,
+            speech=_speech(0.1, year=2026, month=4, url="https://x/dup"),
+            delta=None,
+            side="none",
+            word="first analyzed speech",
+        ),
+        RecentSpeech(
+            speaker=speaker,
+            speech=_speech(0.2, year=2026, month=1, url="https://x/dup"),
+            delta=None,
+            side="none",
+            word="first analyzed speech",
+        ),
+        RecentSpeech(
+            speaker=speaker,
+            speech=_speech(0.3, year=2026, month=3, url="https://x/other"),
+            delta=None,
+            side="none",
+            word="first analyzed speech",
+        ),
+    ]
+    deduped = _dedup_recent(rows, limit=10)
+    # Sorted newest first; the April row wins the duplicate URL, the January one is dropped.
+    assert [r.speech.url for r in deduped] == ["https://x/dup", "https://x/other"]
+    assert len(_dedup_recent(rows, limit=1)) == 1  # the cap is honoured
 
 
 @pytest.mark.web
